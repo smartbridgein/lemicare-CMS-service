@@ -103,10 +103,11 @@ public class StorefrontService {
         // ===================================================================
         // Step A: (Internal Read) Get the presentation data from our own database.
         // ===================================================================
-        StorefrontProduct storefrontProduct = null;
-       /* StorefrontProduct storefrontProduct = storefrontProductRepository
+        //StorefrontProduct storefrontProduct = null;
+
+        StorefrontProduct storefrontProduct = storefrontProductRepository
                 .findByOrganizationIdAndProductId(orgId, productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found."));*/
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found."));
 
         // If the product is not marked as visible, treat it as not found.
         if (!storefrontProduct.isVisible()) {
