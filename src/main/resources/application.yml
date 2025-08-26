@@ -1,0 +1,81 @@
+# ===================================================================
+# SERVER CONFIGURATION
+# ===================================================================
+server:
+  # A unique port for the storefront-service to avoid conflicts.
+  port: 8087
+
+# ===================================================================
+# CORE SPRING APPLICATION CONFIGURATION
+# ===================================================================
+spring:
+  application:
+    name: lemicare-cms
+
+  # ===================================================================
+  # SECURITY CONFIGURATION (OAUTH2 RESOURCE SERVER)
+  # ===================================================================
+  # This section configures how this service validates incoming JWTs
+  # for its secured admin endpoints (e.g., /api/admin/storefront/**).
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # This is used to validate the 'iss' (issuer) claim inside the JWT.
+          # It MUST be the same value as 'app.jwt.issuer' in your auth-service.
+          issuer: "https://cosmicdoc.com"
+
+          # This provides the shared secret to validate the JWT's signature.
+          # It MUST be the exact same 'app.jwt.secret-key' from your auth-service.
+          # In production, this MUST be loaded from an environment variable.
+          secret-key: "${JWT_SECRET_KEY:YourSuperStrongAndLongSecretKeyForHmacShaAlgorithmsAtLeast256Bits}"
+
+# ===================================================================
+# OPENAPI / SWAGGER DOCUMENTATION CONFIGURATION
+# ===================================================================
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /api-docs
+  info:
+    title: "Lemicare -CMS Service API"
+    version: "1.0.0"
+    description: "APIs for managing e-commerce content (products, categories, images) and public storefront data."
+  # Defines default content types for the API
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
+
+# ===================================================================
+# CUSTOM APPLICATION PROPERTIES
+# ===================================================================
+app:
+  firebase:
+    # Path to the service account key within the classpath.
+    service-account-path: "google-services.json"
+
+# ===================================================================
+# DOWNSTREAM SERVICE LOCATIONS
+# ===================================================================
+# Centralized configuration for the URLs of other microservices this
+# service needs to communicate with.
+services:
+  inventory:
+    # We point to the API Gateway's address, as it's the single entry point.
+    # The RestTemplate client will use this base URL.
+    url: "http://localhost:8080/api/inventory"
+
+
+# ===================================================================
+# ACTUATOR / MANAGEMENT ENDPOINTS
+# ===================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose the 'health' and 'info' endpoints for monitoring.
+        include: "health,info"
+  endpoint:
+    health:
+      show-details: when_authorized
+
