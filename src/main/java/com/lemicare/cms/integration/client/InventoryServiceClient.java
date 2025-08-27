@@ -6,6 +6,7 @@ import com.lemicare.cms.Exception.ServiceCommunicationException;
 import com.lemicare.cms.dto.request.MedicineMasterData;
 import com.lemicare.cms.dto.request.MedicineStockData;
 import com.lemicare.cms.dto.response.MedicineStockDetailResponse;
+import com.lemicare.cms.dto.response.MedicineStockResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -38,12 +39,12 @@ public class InventoryServiceClient {
      * @param medicineId The ID of the medicine to fetch.
      * @return A DTO with the medicine's master data.
      */
-    public Medicine getMedicineDetails(String medicineId) {
+    public MedicineStockResponse getMedicineDetails(String medicineId) {
         String url = inventoryServiceBaseUrl + "/masters/medicines/{medicineId}";
         Map<String, String> uriVariables = Map.of("medicineId", medicineId);
 
         try {
-            ResponseEntity<Medicine> response = restTemplate.getForEntity(url, Medicine.class, uriVariables);
+            ResponseEntity<MedicineStockResponse> response = restTemplate.getForEntity(url, MedicineStockResponse.class, uriVariables);
             return response.getBody();
         } catch (HttpClientErrorException.NotFound e) {
             // Translate the 404 from the downstream service into our own specific exception.

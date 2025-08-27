@@ -11,6 +11,7 @@ import com.lemicare.cms.Exception.ResourceNotFoundException;
 import com.lemicare.cms.dto.request.CategoryRequestDto;
 import com.lemicare.cms.dto.request.ProductEnrichmentRequestDto;
 import com.lemicare.cms.dto.response.MedicineStockDetailResponse;
+import com.lemicare.cms.dto.response.MedicineStockResponse;
 import com.lemicare.cms.dto.response.PublicProductDetailResponse;
 import com.lemicare.cms.integration.client.InventoryServiceClient;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ import java.util.List;
 public class StorefrontService {
 
     private final StorefrontProductRepository storefrontProductRepository;
-    private final StorefrontCategoryRepository categoryRepository;
+    private final StorefrontCategoryRepository storefrontCategoryRepository;
     private final InventoryServiceClient inventoryServiceClient;
 
     // --- Category Management ---
@@ -43,11 +44,11 @@ public class StorefrontService {
                 .parentCategoryId(dto.getParentCategoryId())
                 .build();
 
-        return categoryRepository.save(category);
+        return storefrontCategoryRepository.save(category);
     }
 
     public StorefrontCategory updateCategory(String orgId, String categoryId, CategoryRequestDto dto) {
-        StorefrontCategory existingCategory = categoryRepository.findById(orgId, categoryId)
+        StorefrontCategory existingCategory = storefrontCategoryRepository.findById(orgId, categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category with ID " + categoryId + " not found."));
 
         // Update fields from DTO
@@ -57,23 +58,23 @@ public class StorefrontService {
         existingCategory.setImageUrl(dto.getImageUrl());
         existingCategory.setParentCategoryId(dto.getParentCategoryId());
 
-        return categoryRepository.save(existingCategory);
+        return storefrontCategoryRepository.save(existingCategory);
     }
 
     public List<StorefrontCategory> getCategories(String orgId) {
-        return categoryRepository.findAllByOrganization(orgId);
+        return storefrontCategoryRepository.findAllByOrganization(orgId);
     }
 
     public void deleteCategory(String orgId, String categoryId) {
         // TODO: Add logic to check if any products are using this category before deleting.
-        categoryRepository.deleteById(orgId, categoryId);
+        storefrontCategoryRepository.deleteById(orgId, categoryId);
     }
 
     // --- Product Enrichment ---
 
     public StorefrontProduct enrichProduct(String orgId, String branchId, String productId, ProductEnrichmentRequestDto dto) {
         // Find existing enrichment data or create a new one
-        StorefrontProduct product = storefrontProductRepository.findById(orgId, branchId, productId)
+        StorefrontProduct product = storefrontProductRepository.findById(orgId, productId)
                 .orElseGet(() -> StorefrontProduct.builder()
                         .productId(productId)
                         .organizationId(orgId)
@@ -87,7 +88,7 @@ public class StorefrontService {
         product.setTags(dto.getTags());
         // A URL-friendly slug should also be generated and stored here
 
-        return storefrontProductRepository.save(product,orgId,branchId);
+        return storefrontProductRepository.save(product);
     }
 
     /**
@@ -103,11 +104,15 @@ public class StorefrontService {
         // ===================================================================
         // Step A: (Internal Read) Get the presentation data from our own database.
         // ===================================================================
-        //StorefrontProduct storefrontProduct = null;
 
-        StorefrontProduct storefrontProduct = storefrontProductRepository
-                .findByOrganizationIdAndProductId(orgId, productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product not found."));
+        StorefrontProduct storefrontProduct = storefrontProductRepository.findById(orgId,productId)
+               .orElseThrow(() -> new ResourceNotFoundException("Product not found."));
+
+        String sourceBranchId = storefrontProduct.getBranchId();
+        if (sourceBranchId == null) {
+            // Product has not been fully configured for sale
+            throw new ResourceNotFoundException("Product not available for online sale.");
+        }
 
         // If the product is not marked as visible, treat it as not found.
         if (!storefrontProduct.isVisible()) {
@@ -118,10 +123,10 @@ public class StorefrontService {
         // Step B & C: (Internal API Call) Call the inventory-service via Feign.
         // ===================================================================
         // The Feign client will automatically handle authentication.
-        Medicine inventoryData = inventoryServiceClient.getMedicineDetails(productId);
+        MedicineStockResponse inventoryData = inventoryServiceClient.getMedicineDetails(productId);
 
         // Also fetch the category name for display
-        String categoryName = categoryRepository.findById(orgId,storefrontProduct.getCategoryId())
+        String categoryName = storefrontCategoryRepository.findById(orgId,storefrontProduct.getCategoryId())
                 .map(StorefrontCategory::getName)
                 .orElse("Uncategorized");
 
@@ -136,7 +141,7 @@ public class StorefrontService {
                 .manufacturer(inventoryData.getManufacturer())
 
                 .availableStock(inventoryData.getQuantityInStock()) // Assuming this is on the detail response
-               // .mrp(inventoryData.)
+                .mrp(inventoryData.getUnitPrice())
                 // Data from Storefront (CMS) Service
                 .richDescription(storefrontProduct.getRichDescription())
                 .images(storefrontProduct.getImages())
