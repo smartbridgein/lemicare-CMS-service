@@ -1,7 +1,10 @@
 package com.lemicare.cms.controller;
 
+import com.cosmicdoc.common.model.StorefrontCategory;
 import com.lemicare.cms.Exception.ResourceNotFoundException;
+import com.lemicare.cms.dto.response.PaginatedResponse;
 import com.lemicare.cms.dto.response.PublicProductDetailResponse;
+import com.lemicare.cms.dto.response.PublicProductListResponse;
 import com.lemicare.cms.service.StorefrontService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -10,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Controller for handling all PUBLIC-FACING API requests for the e-commerce storefront.
@@ -56,7 +61,33 @@ public class PublicStorefrontController {
         }
     }
 
+    /**
+     * Fetches a paginated and filterable list of all visible products for a store.
+     */
+    @GetMapping("/{orgId}/products")
+    public ResponseEntity<PaginatedResponse<PublicProductListResponse>> listPublicProducts(
+            @PathVariable String orgId,
+            @RequestParam(required = false) String categoryId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String startAfter // For Firestore cursor pagination
+    ) {
+        PaginatedResponse<PublicProductListResponse> products = storefrontService.listPublicProducts(orgId, categoryId, page, size, startAfter);
+        return ResponseEntity.ok(products);
+    }
+
+    /**
+     * Fetches the list of all categories for a store's navigation.
+     */
+    @GetMapping("/{orgId}/categories")
+    public ResponseEntity<List<StorefrontCategory>> getPublicCategories(@PathVariable String orgId) {
+        List<StorefrontCategory> categories =(storefrontService.getCategories(orgId));
+        return ResponseEntity.ok(categories);
+    }
+}
+
+
     // You would add other public endpoints here, for example:
     // @GetMapping("/{orgId}/products") for listing all products
     // @GetMapping("/{orgId}/categories") for listing all categories
-}
+
