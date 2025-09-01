@@ -126,6 +126,35 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
+			<plugin>
+				<groupId>com.google.cloud.tools</groupId>
+				<artifactId>jib-maven-plugin</artifactId>
+				<version>3.4.1</version>
+				<configuration>
+					<from>
+						<image>eclipse-temurin:21-jre</image>
+					</from>
+					<to>
+						<image>gcr.io/${env.PROJECT_ID}/lemicare-payment-service:latest</image>
+					</to>
+					<container>
+						<jvmFlags>
+							<jvmFlag>-XX:InitialRAMPercentage=50</jvmFlag>
+							<jvmFlag>-XX:MaxRAMPercentage=70</jvmFlag>
+							<jvmFlag>-Djava.security.egd=file:/dev/./urandom</jvmFlag>
+							<jvmFlag>-Dserver.port=8087</jvmFlag>
+							<jvmFlag>-Dspring.profiles.active=cloud</jvmFlag>
+						</jvmFlags>
+						<ports>
+							<port>8086</port>
+						</ports>
+						<environment>
+							<SPRING_PROFILES_ACTIVE>cloud</SPRING_PROFILES_ACTIVE>
+							<PORT>8086</PORT>
+						</environment>
+					</container>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 

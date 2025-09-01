@@ -63,7 +63,7 @@ services:
   inventory:
     # We point to the API Gateway's address, as it's the single entry point.
     # The RestTemplate client will use this base URL.
-    url: "http://localhost:8080/api/inventory"
+    url: "http://localhost:8082/api/inventory"
 
 
 # ===================================================================
