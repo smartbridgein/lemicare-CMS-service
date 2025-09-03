@@ -19,10 +19,10 @@ public class InternalCmsController {
     private final StorefrontService storefrontService;
 
     @PostMapping("/stock-updates")
-    @PreAuthorize("hasAuthority('ROLE_INTERNAL_INVENTORY_SERVICE')") // Example: Specific role for Inventory Service
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')") // Example: Specific role for Inventory Service
     public ResponseEntity<Void> handleStockChangeNotification(@RequestBody StockLevelChangedEvent event) {
         // Validate event, log, then delegate to service
-        storefrontService.updateProductStockLevel(event.getOrganizationId(), event.getMedicineId(), event.getNewTotalStock());
+        storefrontService.updateProductStockLevel(event.getOrganizationId(),event.getBranchId(), event.getMedicineId(), event.getNewTotalStock(),event.getMedicineName(),event.getMrp());
         return ResponseEntity.ok().build();
     }
 }
