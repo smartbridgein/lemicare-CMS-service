@@ -1,7 +1,10 @@
 package com.lemicare.cms.dto.request;
 
 import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.List;
 
@@ -14,5 +17,19 @@ public class ProductEnrichmentRequestDto {
     private List<String> tags;
     private String highLights;
     private String slug;
-    // Note: Image management will be a separate set of endpoints.
+    private List<ImageMetadataDto> images;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ImageMetadataDto {
+        private String assetId; // null for new images, ID for existing images
+        private String altText;
+        private int displayOrder;
+        private boolean delete; // True if this existing image should be deleted
+        // Add other metadata needed to match uploaded files to these metadata entries,
+        // e.g., a temporary client-side ID or original filename.
+        // For simplicity, we'll assume the order/index in the list and matching imageFiles by index.
+    }
 }
