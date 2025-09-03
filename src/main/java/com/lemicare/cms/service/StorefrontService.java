@@ -194,38 +194,6 @@ public class StorefrontService {
         return storefrontProductRepository.save(product);
     }
 
-    /**
-     * Helper method to generate a resized image and upload it to GCS.
-     * This method uses Thumbnails library, which is a good choice for simple resizing.
-     * For more advanced processing, consider ImgBot (Java) or ImageMagick.
-     */
-    private String generateAndUploadResizedImage(
-            InputStream originalImageStream,
-            String basePath,
-            String sizePrefix,
-            String fileExtension,
-            int width, int height) throws IOException {
-
-        // Use a ByteArrayOutputStream to capture the resized image data
-        java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
-
-        // Use Thumbnails to resize and write to the output stream
-        Thumbnails.of(originalImageStream)
-                .size(width, height)
-                .outputFormat(fileExtension.substring(1)) // Remove leading dot for outputFormat
-                .toOutputStream(os);
-
-        byte[] resizedImageBytes = os.toByteArray();
-
-        String resizedBlobName = basePath + sizePrefix + "_" + width + "x" + height + fileExtension;
-        BlobInfo resizedBlobInfo = storage.create(
-                BlobInfo.newBuilder(bucketName, resizedBlobName)
-                        .setContentType("image/" + fileExtension.substring(1)) // e.g., "image/jpeg"
-                        .build(),
-                resizedImageBytes
-        );
-        return resizedBlobInfo.getMediaLink();
-    }
 
 
     /**
@@ -452,5 +420,201 @@ public class StorefrontService {
 
         return storefrontProductRepository.save(product);
     }
+
+    /**
+     * Unified method to enrich product metadata and manage product images.
+     * This method handles both text/boolean field updates and image uploads/deletions.
+     *
+     * @param orgId The organization ID.
+     * @param branchId The branch ID.
+     * @param productId The ID of the product to update.
+     * @param request The ProductEnrichmentRequestDto containing metadata updates and image instructions.
+     * @param imageFiles An array of MultipartFiles for new images to be uploaded.
+     * @return The updated StorefrontProduct document.
+     * @throws IOException If there's an issue reading/writing image data.
+     * @throws ExecutionException If Firestore operation fails.
+     * @throws InterruptedException If Firestore operation is interrupted.
+     */
+    public StorefrontProduct updateProduct(
+            String orgId, String branchId, String productId,
+            ProductEnrichmentRequestDto request, MultipartFile[] imageFiles)
+            throws IOException, ExecutionException, InterruptedException {
+
+        StorefrontProduct product = storefrontProductRepository.findById(orgId, productId)
+                .orElseThrow(() -> new ResourceNotFoundException("Storefront Product with ID " + productId + " not found for update."));
+
+        // --- 1. Update general product metadata fields ---
+        if (!Strings.isNullOrEmpty(request.getRichDescription())) {
+            product.setRichDescription(request.getRichDescription());
+        }
+        if (!Strings.isNullOrEmpty(request.getHighLights())) {
+            product.setHighlights(request.getHighLights());
+        }
+        product.setVisible(request.isVisible());
+        if (!Strings.isNullOrEmpty(request.getCategoryId())) {
+            product.setCategoryId(request.getCategoryId());
+        }
+        if (!Strings.isNullOrEmpty(request.getSlug())) {
+            product.setSlug(request.getSlug());
+        }
+        if (request.getTags() != null) {
+            product.setTags(request.getTags());
+        }
+
+        // --- 2. Process Images (Deletions, Updates, New Uploads) ---
+        List<ImageAsset> currentImages = product.getImages() != null ? new ArrayList<>(product.getImages()) : new ArrayList<>();
+        List<ImageAsset> updatedImages = new ArrayList<>();
+
+        // Map existing images by assetId for quick lookup/modification
+        Map<String, ImageAsset> existingImageMap = currentImages.stream()
+                .collect(Collectors.toMap(ImageAsset::getAssetId, Function.identity()));
+
+        // Process image metadata from the request
+        if (request.getImages() != null) {
+            for (ProductEnrichmentRequestDto.ImageMetadataDto imageMetadata : request.getImages()) {
+                if (imageMetadata.isDelete()) {
+                    // This image should be deleted
+                    if (imageMetadata.getAssetId() != null && existingImageMap.containsKey(imageMetadata.getAssetId())) {
+                        deleteImageFilesFromGCS(orgId, productId, imageMetadata.getAssetId());
+                        existingImageMap.remove(imageMetadata.getAssetId()); // Remove from our working map
+                    }
+                } else {
+                    // Existing image to update or new image placeholder
+                    ImageAsset imgAsset;
+                    if (imageMetadata.getAssetId() != null && existingImageMap.containsKey(imageMetadata.getAssetId())) {
+                        // Update existing image metadata
+                        imgAsset = existingImageMap.get(imageMetadata.getAssetId());
+                        imgAsset.setAltText(imageMetadata.getAltText());
+                        imgAsset.setDisplayOrder(imageMetadata.getDisplayOrder());
+                        updatedImages.add(imgAsset); // Add updated existing image to the new list
+                        existingImageMap.remove(imageMetadata.getAssetId()); // Remove from map so we don't process it again
+                    } else {
+                        // This metadata corresponds to a new image that will be uploaded.
+                        // We'll process this after processing all existing images.
+                        // For now, we'll just queue up the metadata and process the actual files next.
+                    }
+                }
+            }
+        }
+
+        // Add any remaining existing images (that weren't in the request or marked for deletion)
+        updatedImages.addAll(existingImageMap.values());
+
+
+        // --- 3. Handle new image file uploads ---
+        // This part requires careful matching between `imageFiles` array and `request.getImages()`
+        // If the client sends `imageFiles[0]` with `request.getImages()[0]` as its metadata,
+        // then they need to be correlated.
+        // A robust solution might involve client-side generated UUIDs passed in both.
+        // For simplicity, let's assume `imageFiles` are new uploads and we assign metadata based on their order
+        // or just use generic alt text and default order if not explicitly linked.
+
+        for (int i = 0; i < imageFiles.length; i++) {
+            MultipartFile imageFile = imageFiles[i];
+            if (!imageFile.isEmpty()) {
+                String assetId = IdGenerator.newId("IMG");;
+
+                String originalFileName = imageFile.getOriginalFilename();
+                String fileExtension = originalFileName != null && originalFileName.contains(".") ?
+                        originalFileName.substring(originalFileName.lastIndexOf(".")) : ".jpg";
+
+                String basePath = String.format("images/%s/%s/%s/", orgId, productId, assetId);
+
+                // 1. Upload Original
+                String originalBlobName = basePath + "original" + fileExtension;
+                BlobInfo originalBlobInfo = storage.create(
+                        BlobInfo.newBuilder(bucketName, originalBlobName).setContentType(imageFile.getContentType()).build(),
+                        imageFile.getInputStream()
+                );
+                String originalUrl = originalBlobInfo.getMediaLink();
+
+                // 2. Generate and Upload Resized Images
+                ByteArrayInputStream originalImageStream = new ByteArrayInputStream(imageFile.getBytes());
+                String thumbnailUrl = generateAndUploadResizedImage(originalImageStream, basePath, "thumb", fileExtension, 200, 200);
+                originalImageStream.reset();
+                String mediumUrl = generateAndUploadResizedImage(originalImageStream, basePath, "medium", fileExtension, 600, 600);
+                originalImageStream.reset();
+                String largeUrl = generateAndUploadResizedImage(originalImageStream, basePath, "large", fileExtension, 1200, 1200);
+
+                // 3. Create new ImageAsset
+                ProductEnrichmentRequestDto.ImageMetadataDto correspondingMetadata = null;
+                if (request.getImages() != null && i < request.getImages().size()) {
+                    correspondingMetadata = request.getImages().get(i);
+                    // This assumes the order of imageFiles directly corresponds to the order of new image metadata in request.getImages()
+                    // If not, you need a more robust matching strategy (e.g., client-generated IDs).
+                }
+
+                ImageAsset newImageAsset = ImageAsset.builder()
+                        .assetId(assetId)
+                        .originalUrl(originalUrl)
+                        .thumbnailUrl(thumbnailUrl)
+                        .mediumUrl(mediumUrl)
+                        .largeUrl(largeUrl)
+                        .altText(correspondingMetadata != null && !Strings.isNullOrEmpty(correspondingMetadata.getAltText())
+                                ? correspondingMetadata.getAltText() : product.getProductName() + " image " + (updatedImages.size() + 1))
+                        .displayOrder(correspondingMetadata != null ? correspondingMetadata.getDisplayOrder() : updatedImages.size()) // Default order
+                        .build();
+                updatedImages.add(newImageAsset);
+            }
+        }
+
+        // Sort all images by display order before saving
+        updatedImages.sort(Comparator.comparingInt(ImageAsset::getDisplayOrder));
+        product.setImages(updatedImages);
+
+        // --- 4. Save the final updated product ---
+        return storefrontProductRepository.save(product);
+    }
+
+
+    /**
+     * Helper method to generate a resized image and upload it to GCS.
+     */
+    private String generateAndUploadResizedImage(
+            InputStream originalImageStream,
+            String basePath,
+            String sizePrefix,
+            String fileExtension,
+            int width, int height) throws IOException {
+
+        java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
+
+        Thumbnails.of(originalImageStream)
+                .size(width, height)
+                .outputFormat(fileExtension.substring(1))
+                .toOutputStream(os);
+
+        byte[] resizedImageBytes = os.toByteArray();
+
+        String resizedBlobName = basePath + sizePrefix + "_" + width + "x" + height + fileExtension;
+        BlobInfo resizedBlobInfo = storage.create(
+                BlobInfo.newBuilder(bucketName, resizedBlobName)
+                        .setContentType("image/" + fileExtension.substring(1))
+                        .build(),
+                resizedImageBytes
+        );
+        return resizedBlobInfo.getMediaLink();
+    }
+
+
+
+
+
+    /**
+     * Helper method to delete all associated blobs for an image asset from GCS.
+     */
+    private void deleteImageFilesFromGCS(String orgId, String productId, String assetId) {
+        String basePath = String.format("images/%s/%s/%s/", orgId, productId, assetId);
+        for (Blob blob : storage.list(bucketName, Storage.BlobListOption.prefix(basePath)).iterateAll()) {
+            blob.delete();
+            log.info("Deleted GCS blob: {}", blob.getName());
+        }
+        log.info("Image asset {} and associated GCS files deleted for product {}", assetId, productId);
+    }
+
+    public List<StorefrontProduct> getAvailableProducts(String orgId) {
+          return storefrontProductRepository.findAllByOrganizationId(orgId);
+    }
 }
+
 

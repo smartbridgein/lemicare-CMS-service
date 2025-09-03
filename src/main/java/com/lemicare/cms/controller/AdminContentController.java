@@ -2,8 +2,11 @@ package com.lemicare.cms.controller;
 
 import com.cosmicdoc.common.model.StorefrontCategory;
 import com.cosmicdoc.common.model.StorefrontProduct;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lemicare.cms.dto.request.CategoryRequestDto;
 import com.lemicare.cms.dto.request.ProductEnrichmentRequestDto;
+import com.lemicare.cms.dto.response.PaginatedResponse;
+import com.lemicare.cms.dto.response.PublicProductListResponse;
 import com.lemicare.cms.security.SecurityUtils;
 import com.lemicare.cms.service.StorefrontService;
 import jakarta.validation.Valid;
@@ -23,7 +26,7 @@ import java.util.concurrent.ExecutionException;
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
 public class AdminContentController {
-
+    private final ObjectMapper objectMapper;
     private final StorefrontService storefrontService;
 
     // --- Category Endpoints ---
@@ -53,7 +56,50 @@ public class AdminContentController {
         return ResponseEntity.noContent().build();
     }*/
 
+    @GetMapping("/products")
+    public ResponseEntity<List<StorefrontProduct>> products()
 
+    {
+        String orgId = SecurityUtils.getOrganizationId();
+
+        List<StorefrontProduct> products = storefrontService.getAvailableProducts(orgId);
+        return ResponseEntity.ok(products);
+    }
+
+
+    /**
+     * Unified endpoint to enrich product metadata and manage product images.
+     * This endpoint expects a `multipart/form-data` request.
+     * The `requestJson` part contains the ProductEnrichmentRequestDto as JSON.
+     * The `imageFiles` parts contain the actual image files.
+     *
+     * @param productId The ID of the product to update.
+     * @param requestJson A JSON string representing the ProductEnrichmentRequestDto.
+     * @param imageFiles An array of MultipartFiles for new/updated images. Can be empty.
+     * @return The updated StorefrontProduct.
+     * @throws IOException If JSON parsing or file I/O fails.
+     * @throws ExecutionException If Firestore operation fails.
+     * @throws InterruptedException If Firestore operation is interrupted.
+     */
+    @PutMapping(value = "/products/{productId}", consumes = "multipart/form-data")
+    public ResponseEntity<StorefrontProduct> updateProduct(
+            @PathVariable String productId,
+            @RequestParam("requestJson") String requestJson, // JSON data as a String parameter
+            @RequestParam(value = "imageFiles", required = false) MultipartFile[] imageFiles) // Array of files
+            throws IOException, ExecutionException, InterruptedException {
+
+        String orgId = SecurityUtils.getOrganizationId();
+        String branchId = SecurityUtils.getBranchId();
+
+        // 1. Parse the JSON string into the DTO
+        ProductEnrichmentRequestDto request = objectMapper.readValue(requestJson, ProductEnrichmentRequestDto.class);
+
+        // 2. Call the service to handle both metadata and images
+        StorefrontProduct updatedProduct = storefrontService.updateProduct(
+                orgId, branchId, productId, request, imageFiles != null ? imageFiles : new MultipartFile[0]
+        );
+        return ResponseEntity.ok(updatedProduct);
+    }
     // --- Product Enrichment Endpoint ---
     @PutMapping("/products/{productId}")
     public ResponseEntity<StorefrontProduct> enrichProduct(
@@ -66,6 +112,8 @@ public class AdminContentController {
         StorefrontProduct enrichedProduct = storefrontService.enrichProduct(orgId, branchId, productId, request);
         return ResponseEntity.ok(enrichedProduct);
     }
+
+
 
     @PostMapping("/products/{productId}/images")
     public ResponseEntity<StorefrontProduct> uploadProductImage(
