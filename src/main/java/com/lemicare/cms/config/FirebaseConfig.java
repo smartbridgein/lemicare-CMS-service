@@ -2,6 +2,8 @@ package com.lemicare.cms.config;
 
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.firestore.Firestore;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageOptions;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.cloud.FirestoreClient;
@@ -29,6 +31,10 @@ public class FirebaseConfig {
     // Injects the path to the service account key from application.yml
     @Value("${app.firebase.service-account-path}")
     private String serviceAccountPath;
+
+    // Injects the Google Cloud Project ID from application.yml
+   @Value("${gcp.project-id}")
+    private String projectId;
 
     /**
      * Initializes the Firebase Admin SDK as a Spring Bean.
@@ -71,4 +77,27 @@ public class FirebaseConfig {
     public Firestore firestore(FirebaseApp firebaseApp) {
         return FirestoreClient.getFirestore(firebaseApp);
     }
+    /**
+     * Provides the Google Cloud Storage client as a Spring Bean.
+     * <p>
+     * This allows you to interact with Google Cloud Storage buckets for storing and retrieving files.
+     * It uses the same service account credentials as Firebase for authentication.
+     *
+     * @return The configured Google Cloud Storage client.
+     * @throws IOException if the credentials file cannot be found or read.
+     */
+   @Bean
+    public Storage storage() throws IOException {
+        // Load the service account credentials again for StorageOptions.
+        // It's safe to do this as the InputStream is closed after reading.
+        InputStream serviceAccount = new ClassPathResource(serviceAccountPath).getInputStream();
+
+        // Build StorageOptions with the project ID and credentials
+        return StorageOptions.newBuilder()
+                .setProjectId(projectId)
+                .setCredentials(GoogleCredentials.fromStream(serviceAccount))
+                .build()
+                .getService();
+    }
+
 }

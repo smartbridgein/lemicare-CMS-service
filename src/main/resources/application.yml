@@ -79,3 +79,7 @@ management:
     health:
       show-details: when_authorized
 
+gcp:
+  project-id: gcp-project-id # IMPORTANT:
+  storage:
+    bucket-name: your-gcs-bucket-name # Your GCS bucket name for product images
