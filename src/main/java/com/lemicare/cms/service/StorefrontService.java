@@ -183,7 +183,7 @@ public class StorefrontService {
                 .thumbnailUrl(thumbnailUrl)
                 .mediumUrl(mediumUrl)
                 .largeUrl(largeUrl)
-                .altText(altText != null ? altText : product.getProductName() + " image") // Default alt text
+                .altText(altText != null ? altText : product.getProductName()+ " image") // Default alt text
                 .displayOrder(displayOrder)
                 .build();
 
