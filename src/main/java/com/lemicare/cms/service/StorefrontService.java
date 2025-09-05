@@ -213,13 +213,13 @@ public class StorefrontService {
         StorefrontProduct storefrontProduct = storefrontProductRepository.findById(orgId, productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found."));
 
-        String sourceBranchId = storefrontProduct.getBranchId();
-        if (sourceBranchId == null) {
+       // String sourceBranchId = storefrontProduct.getBranchId();
+        /*if (sourceBranchId == null) {
             // Product has not been fully configured for sale
             throw new ResourceNotFoundException("Product not available for online sale.");
         }
 
-        // If the product is not marked as visible, treat it as not found.
+*/        // If the product is not marked as visible, treat it as not found.
         if (!storefrontProduct.isVisible()) {
             throw new ResourceNotFoundException("Product not found.");
         }
@@ -350,7 +350,7 @@ public class StorefrontService {
             product = StorefrontProduct.builder()
                     .productId(productId)
                     .organizationId(orgId)
-                    .branchId(branchId)
+                    //.branchId(branchId)
                     .isVisible(false) // Default to not visible until CMS admin enriches it
                     .images(new java.util.ArrayList<>())
                     .tags(new java.util.ArrayList<>())
@@ -358,6 +358,9 @@ public class StorefrontService {
             isNewProduct = true;
         }
 
+        if(product.getProductId() == null || product.getProductId().isEmpty()) {
+            product.setProductId(productId);
+        }
         // Always update core product details that come from inventory
         product.setProductName(productName);
         product.setMrp(mrp);
