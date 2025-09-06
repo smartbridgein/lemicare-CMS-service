@@ -1,6 +1,7 @@
 package com.lemicare.cms.controller;
 
 import com.cosmicdoc.common.model.StorefrontCategory;
+import com.cosmicdoc.common.model.StorefrontProduct;
 import com.lemicare.cms.Exception.ResourceNotFoundException;
 import com.lemicare.cms.dto.response.PaginatedResponse;
 import com.lemicare.cms.dto.response.PublicProductDetailResponse;
@@ -65,16 +66,20 @@ public class PublicStorefrontController {
      * Fetches a paginated and filterable list of all visible products for a store.
      */
     @GetMapping("/{orgId}/products")
-    public ResponseEntity<PaginatedResponse<PublicProductListResponse>> listPublicProducts(
-            @PathVariable String orgId,
-            @RequestParam(required = false) String categoryId,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String startAfter // For Firestore cursor pagination
+    public ResponseEntity<List<StorefrontProduct>> listPublicProducts(
+            @PathVariable String orgId
+           // @RequestParam(required = false) String categoryId,
+           // @RequestParam(defaultValue = "0") int page,
+            //@RequestParam(defaultValue = "20") int size,
+           // @RequestParam(required = false) String startAfter // For Firestore cursor pagination
     ) {
-        PaginatedResponse<PublicProductListResponse> products = storefrontService.listPublicProducts(orgId, categoryId, page, size, startAfter);
+        /*PaginatedResponse<PublicProductListResponse> products = storefrontService.listPublicProducts(orgId, categoryId, page, size, startAfter);
+        return ResponseEntity.ok(products);*/
+        List<StorefrontProduct> products = storefrontService.getAvailableProducts(orgId);
         return ResponseEntity.ok(products);
+
     }
+
 
     /**
      * Fetches the list of all categories for a store's navigation.
