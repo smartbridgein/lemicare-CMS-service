@@ -228,25 +228,29 @@ public class StorefrontService {
         // Step B & C: (Internal API Call) Call the inventory-service via Feign.
         // ===================================================================
         // The Feign client will automatically handle authentication.
-        MedicineStockResponse inventoryData = inventoryServiceClient.getMedicineDetails(productId);
+       // MedicineStockResponse inventoryData = inventoryServiceClient.getMedicineDetails(productId);
 
         // Also fetch the category name for display
-        String categoryName = storefrontCategoryRepository.findById(orgId, storefrontProduct.getCategoryId())
-                .map(StorefrontCategory::getName)
-                .orElse("Uncategorized");
+        String categoryName = null;
+        if(storefrontProduct.getCategoryId() != null) {
+            categoryName = storefrontCategoryRepository.findById(orgId, storefrontProduct.getCategoryId())
+                    .map(StorefrontCategory::getName)
+                    .orElse("Uncategorized");
+        }
+
 
         // ===================================================================
         // Step D: Combine and Respond
         // ===================================================================
         return PublicProductDetailResponse.builder()
                 // Data from Inventory Service
-                .productId(inventoryData.getMedicineId())
-                .name(inventoryData.getName())
-                .genericName(inventoryData.getGenericName())
-                .manufacturer(inventoryData.getManufacturer())
+                .productId(storefrontProduct.getProductId())
+                .name(storefrontProduct.getProductName())
+                .genericName(storefrontProduct.getSlug())
+               // .manufacturer(inventoryData.getManufacturer())
 
-                .availableStock(inventoryData.getQuantityInStock()) // Assuming this is on the detail response
-                .mrp(inventoryData.getUnitPrice())
+                .availableStock(storefrontProduct.getStockLevel()) // Assuming this is on the detail response
+                .mrp(storefrontProduct.getMrp())
                 // Data from Storefront (CMS) Service
                 .richDescription(storefrontProduct.getRichDescription())
                 .images(storefrontProduct.getImages())
@@ -258,7 +262,9 @@ public class StorefrontService {
     }
 
 
-    public PaginatedResponse<PublicProductListResponse> listPublicProducts(
+
+
+    public PaginatedResponse<PublicProductListResponse> findAllByOrganizationlistPublicProducts(
             String orgId, String categoryId, int page, int size, String startAfter) {
 
         // 1. Get a paginated list of visible storefront products from our DB.
@@ -266,6 +272,7 @@ public class StorefrontService {
         // to access getTotalElements(), getTotalPages(), isLast().
         FirestorePage<StorefrontProduct> productPage =
                 (FirestorePage<StorefrontProduct>) storefrontProductRepository.findAllVisible(orgId, categoryId, size, startAfter);
+
 
         List<StorefrontProduct> cmsProducts = productPage.getValues(); // Use getValues()
 
@@ -290,29 +297,29 @@ public class StorefrontService {
                 .collect(Collectors.toList());
 
         // 3. Make a single, efficient batch API call to the inventory service.
-        MedicineStockRequest stockRequest = new MedicineStockRequest(medicineIds);
-        List<MedicineStockResponse> inventoryData = inventoryServiceClient.getStockLevelsForMedicines(stockRequest);
+      //  MedicineStockRequest stockRequest = new MedicineStockRequest(medicineIds);
+       // List<MedicineStockResponse> inventoryData = inventoryServiceClient.getStockLevelsForMedicines(stockRequest);
 
         // Create a lookup map for easy access
-        Map<String, MedicineStockResponse> inventoryMap = inventoryData.stream()
-                .collect(Collectors.toMap(MedicineStockResponse::getMedicineId, Function.identity()));
+       // Map<String, MedicineStockResponse> inventoryMap = inventoryData.stream()
+       //         .collect(Collectors.toMap(MedicineStockResponse::getMedicineId, Function.identity()));
 
         // 4. Combine the two data sources into the final response DTO.
         List<PublicProductListResponse> responseList = cmsProducts.stream().map(cmsProduct -> {
-            MedicineStockResponse stockInfo = inventoryMap.get(cmsProduct.getProductId());
-            if (stockInfo == null) {
+           // MedicineStockResponse stockInfo = inventoryMap.get(cmsProduct.getProductId());
+          //  if (stockInfo == null) {
                 // If a product from CMS is not found in inventory, decide how to handle.
                 // Current code returns null, which then gets filtered out.
                 // This correctly ensures only products with inventory data are shown.
-                return null;
-            }
+                //return null;
+          //  }
 
             return PublicProductListResponse.builder()
                     .productId(cmsProduct.getProductId())
-                    .name(stockInfo.getName()) // Name from inventory
+                    .name(cmsProduct.getProductName()) // Name from inventory
                     .mainImageUrl(cmsProduct.getImages().isEmpty() ? null : cmsProduct.getImages().get(0).getOriginalUrl())
-                    .mrp(stockInfo.getUnitPrice()) // MRP from inventory
-                    .stockStatus(stockInfo.getStockStatus()) // Stock status from inventory
+                    .mrp(cmsProduct.getMrp()) // MRP from inventory
+                    .stockStatus(cmsProduct.getCurrentStatus()) // Stock status from inventory
                     .build();
         }).filter(Objects::nonNull).collect(Collectors.toList());
 
