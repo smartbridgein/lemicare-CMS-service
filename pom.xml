@@ -96,6 +96,7 @@
 			<optional>true</optional>
 		</dependency>
 
+
 		<!-- Feign + Retry -->
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
@@ -136,6 +137,8 @@
 		    <artifactId>thumbnailator</artifactId>
 		    <version>0.4.20</version>
 		 </dependency>
+
+
 	</dependencies>
 
 	<build>

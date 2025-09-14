@@ -1,24 +1,22 @@
 package com.lemicare.cms.service;
 
-import com.cosmicdoc.common.model.ImageAsset;
-import com.cosmicdoc.common.model.Medicine;
-import com.cosmicdoc.common.model.StorefrontCategory;
-import com.cosmicdoc.common.model.StorefrontProduct;
+import com.cosmicdoc.common.model.*;
 import com.cosmicdoc.common.repository.StorefrontCategoryRepository;
+import com.cosmicdoc.common.repository.StorefrontOrderRepository;
 import com.cosmicdoc.common.repository.StorefrontProductRepository;
 import com.cosmicdoc.common.util.FirestorePage;
 import com.cosmicdoc.common.util.IdGenerator;
 import com.google.api.client.util.Strings;
 import com.google.api.gax.paging.Page;
+import com.google.cloud.Timestamp;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.lemicare.cms.Exception.ResourceNotFoundException;
-import com.lemicare.cms.dto.request.CategoryRequestDto;
-import com.lemicare.cms.dto.request.MedicineStockRequest;
-import com.lemicare.cms.dto.request.ProductEnrichmentRequestDto;
+import com.lemicare.cms.dto.request.*;
 import com.lemicare.cms.dto.response.*;
 import com.lemicare.cms.integration.client.InventoryServiceClient;
+import com.lemicare.cms.integration.client.PaymentServiceClient;
 import lombok.RequiredArgsConstructor;
 import net.coobird.thumbnailator.Thumbnails;
 import org.slf4j.Logger;
@@ -41,8 +39,11 @@ public class StorefrontService {
     private static final Logger log = LoggerFactory.getLogger(StorefrontService.class);
     private final StorefrontProductRepository storefrontProductRepository;
     private final StorefrontCategoryRepository storefrontCategoryRepository;
+    private final StorefrontOrderRepository storefrontOrderRepository;
     private final InventoryServiceClient inventoryServiceClient;
     private final Storage storage; // Google Cloud Storage client
+    PaymentServiceClient paymentServiceClient;
+
 
     @Value("${gcp.storage.bucket-name}")
     private String bucketName;
@@ -106,7 +107,7 @@ public class StorefrontService {
         }
         product.setVisible(request.isVisible()); // Boolean always updates
         if (!Strings.isNullOrEmpty(request.getCategoryId())) {
-            product.setCategoryId(request.getCategoryId());
+            product.setCategoryName(request.getCategoryId());
         }
         if (!Strings.isNullOrEmpty(request.getSlug())) {
             product.setSlug(request.getSlug());
@@ -231,13 +232,7 @@ public class StorefrontService {
        // MedicineStockResponse inventoryData = inventoryServiceClient.getMedicineDetails(productId);
 
         // Also fetch the category name for display
-        String categoryName = null;
-        if(storefrontProduct.getCategoryId() != null) {
-            categoryName = storefrontCategoryRepository.findById(orgId, storefrontProduct.getCategoryId())
-                    .map(StorefrontCategory::getName)
-                    .orElse("Uncategorized");
-        }
-
+        String categoryName = storefrontProduct.getCategoryName() != null ? storefrontProduct.getCategoryName() : "Uncategorized";
 
         // ===================================================================
         // Step D: Combine and Respond
@@ -334,7 +329,7 @@ public class StorefrontService {
         );
     }
 
-    public void updateProductStockLevel(String orgId,String branchId, String productId, int newStockLevel,String productName, Double mrp) {
+    public void updateProductStockLevel(String orgId,String branchId, String productId, int newStockLevel,String productName, Double mrp,String taxProfileId, String gstType,String category ) {
         // The branchId needs to be part of the key for StorefrontProduct
         // If the StockLevelChangedEvent doesn't carry branchId, you'll need a strategy
         // (e.g., assume a default branch, or publish an event per branch if stock is branch-specific)
@@ -358,6 +353,9 @@ public class StorefrontService {
                     .productId(productId)
                     .organizationId(orgId)
                     //.branchId(branchId)
+                    .categoryName(category)
+                    .taxProfileId(taxProfileId)
+                    .gstType(gstType)
                     .isVisible(false) // Default to not visible until CMS admin enriches it
                     .images(new java.util.ArrayList<>())
                     .tags(new java.util.ArrayList<>())
@@ -462,7 +460,7 @@ public class StorefrontService {
         }
         product.setVisible(request.isVisible());
         if (!Strings.isNullOrEmpty(request.getCategoryId())) {
-            product.setCategoryId(request.getCategoryId());
+            product.setCategoryName(request.getCategoryId());
         }
         if (!Strings.isNullOrEmpty(request.getSlug())) {
             product.setSlug(request.getSlug());
@@ -606,10 +604,6 @@ public class StorefrontService {
         return resizedBlobInfo.getMediaLink();
     }
 
-
-
-
-
     /**
      * Helper method to delete all associated blobs for an image asset from GCS.
      */
@@ -624,6 +618,135 @@ public class StorefrontService {
 
     public List<StorefrontProduct> getAvailableProducts(String orgId) {
           return storefrontProductRepository.findAllByOrganizationId(orgId);
+    }
+
+    public StorefrontOrder createPendingOrder(String orgId, InitiateCheckoutRequest request)
+            throws ExecutionException, InterruptedException {
+
+        // Generate a unique order ID
+        String orderId = IdGenerator.newId("ORD");
+
+        List<StorefrontOrderItem> orderItems = new ArrayList<>();
+        double grandTotal = 0.0; // We'll calculate this now
+
+        for (CartItemDto cartItem : request.getCartItems()) {
+            // --- IMPORTANT: Real-world Scenario ---
+            // In a production system, you MUST fetch the actual product price, stock,
+            // and tax information from your inventory/CMS service here using cartItem.productId.
+            // DO NOT trust the price (mrpPerItem) and discount sent by the frontend directly.
+            // This prevents price manipulation.
+            // For this example, we'll use the DTO values for simplicity, but mark this
+            // as a critical point for refinement.
+
+            // Example:
+            // Product realProduct = productLookupService.getProductDetails(orgId, cartItem.getProductId());
+            // if (realProduct == null || realProduct.getStockLevel() < cartItem.getQuantity()) {
+            //     throw new InsufficientStockException("Not enough stock for " + cartItem.getProductName());
+            // }
+            // double verifiedMrp = realProduct.getMrp();
+            // double verifiedDiscount = calculateDiscount(realProduct, cartItem.getQuantity());
+            // TaxDetails verifiedTax = calculateTax(realProduct, orgId, branchId); // Needs branchId
+
+            // For now, using DTO values:
+            double mrpPerItem = cartItem.getMrpPerItem();
+            double discountPercentage = cartItem.getDiscountPercentage();
+            int quantity = cartItem.getQuantity();
+
+            double lineItemGrossMrp = mrpPerItem * quantity;
+            double lineItemDiscountAmount = lineItemGrossMrp * (discountPercentage / 100.0);
+            double lineItemNetAfterDiscount = lineItemGrossMrp - lineItemDiscountAmount;
+
+            // --- Tax Calculation (Simplified for example) ---
+            // In a real system, tax calculation would be complex, involving:
+            // 1. Product's tax profile
+            // 2. Customer's shipping address (state/country)
+            // 3. Organization's tax settings
+            // For now, let's assume a flat 18% GST (replace with actual logic)
+            double taxRateApplied = 18.0; // Example
+            double lineItemTaxableAmount = lineItemNetAfterDiscount; // Assuming discount before tax
+            double lineItemTaxAmount = lineItemTaxableAmount * (taxRateApplied / 100.0);
+            double lineItemTotalAmount = lineItemTaxableAmount + lineItemTaxAmount;
+
+            // Example tax components (replace with actual breakdown)
+            List<TaxComponent> taxComponents = new ArrayList<>();
+           // taxComponents.add(TaxComponent.builder().name("CGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
+            //taxComponents.add(TaxComponent.builder().name("SGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
+
+
+            StorefrontOrderItem orderItem = StorefrontOrderItem.builder()
+                    .productId(cartItem.getProductId())
+                    .productName(cartItem.getProductName())
+                    .sku(cartItem.getSku())
+                    .quantity(quantity)
+                    .mrpPerItem(mrpPerItem)
+                    .discountPercentage(discountPercentage)
+                    .lineItemGrossMrp(lineItemGrossMrp)
+                    .lineItemDiscountAmount(lineItemDiscountAmount)
+                    .lineItemNetAfterDiscount(lineItemNetAfterDiscount)
+                    .lineItemTaxableAmount(lineItemTaxableAmount)
+                    .lineItemTaxAmount(lineItemTaxAmount)
+                    .lineItemTotalAmount(lineItemTotalAmount)
+                    // Tax Details Snapshot
+                    // .gstType(verifiedTax.getGstType()) // Use actual tax type from lookup
+                    // .taxProfileId(verifiedTax.getTaxProfileId())
+                    .taxRateApplied(taxRateApplied) // Use actual rate
+                    .taxComponents(taxComponents) // Use actual components
+                    .build();
+            orderItems.add(orderItem);
+
+            grandTotal += lineItemTotalAmount;
+        }
+
+        // --- Determine Branch ---
+        // How do you determine the branchId?
+        // 1. Based on customer's shipping address (find nearest branch)?
+        // 2. Pre-selected by customer on frontend?
+        // 3. Default branch for the organization?
+        // For now, we'll need to explicitly get it or assume it's passed or derived.
+        // Let's assume it can be derived or picked from a default.
+        String branchId = determineFulfillingBranch(orgId, request.getShippingAddress()); // Implement this logic
+
+        StorefrontOrder order = StorefrontOrder.builder()
+                .orderId(orderId)
+                .organizationId(orgId)
+                .branchId(branchId) // CRITICAL: This needs to be correctly determined
+                .patientId(request.getPatientId())
+                .customerInfo(request.getCustomerInfo())
+                .shippingAddress(request.getShippingAddress())
+                .grandTotal(grandTotal)
+                .status("PENDING_PAYMENT") // Initial status
+                .createdAt(Timestamp.now())
+                .items(orderItems)
+                .build();
+
+        log.info("Saving new StorefrontOrder with ID: {} for Org: {}", orderId, orgId);
+        StorefrontOrder savedOrder = storefrontOrderRepository.save(order);
+        log.info("Successfully created pending order: {}", savedOrder.getOrderId());
+
+        return savedOrder;
+    }
+
+    private String determineFulfillingBranch(String orgId, Map<String, String> shippingAddress) {
+        // Implement logic here to determine which branch should fulfill the order.
+        // This could involve:
+        // - Looking up branches by geo-location/delivery radius.
+        // - Using a default branch for the organization.
+        // - If the frontend explicitly sends a branch preference, use that.
+        // For simplicity, returning a hardcoded dummy for now.
+        log.warn("Using dummy branchId for order fulfillment. Implement actual branch determination logic!");
+        // return "some-derived-branch-id";
+        // Let's assume for now, there's a default branch or it's implicitly part of the org.
+        // In a single-branch org, it might always be the same.
+        // If your SecurityUtils.getBranchId() can give a context, you could use that.
+        // Or if the frontend passes it in the request.
+        // IMPORTANT: You might need to update InitiateCheckoutRequest to include branchId.
+        return "branch_default_001"; // Placeholder
+    }
+
+    public CreateOrderResponse createPaymentOrder(String orgId, CreateOrderRequest request) {
+
+         return paymentServiceClient.createPaymentOrder(request);
+
     }
 }
 

@@ -65,6 +65,11 @@ services:
     # The RestTemplate client will use this base URL.
     url: "http://localhost:8082/api/inventory"
 
+  payment-service:
+    # The base URL of the storefront-service.
+    # Feign will use this to construct the full request URL.
+    url: "http://localhost:8085" # <-- Port of your storefront-service
+
 
 # ===================================================================
 # ACTUATOR / MANAGEMENT ENDPOINTS
@@ -82,4 +87,6 @@ management:
 gcp:
   project-id: lemicareprod # IMPORTANT:
   storage:
-    bucket-name:  my-app-bucket-123 # Your GCS bucket name for product images
+    bucket-name:  my-app-bucket-cms # Your GCS bucket name for product images
+
+
