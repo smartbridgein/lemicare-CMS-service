@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/internal") // Internal path prefix
 @RequiredArgsConstructor
-//@Hidden
+@Hidden
 public class InternalCmsController {
     private final StorefrontService storefrontService;
 
@@ -22,7 +22,8 @@ public class InternalCmsController {
    // @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')") // Example: Specific role for Inventory Service
     public ResponseEntity<Void> handleStockChangeNotification(@RequestBody StockLevelChangedEvent event) {
         // Validate event, log, then delegate to service
-        storefrontService.updateProductStockLevel(event.getOrganizationId(),event.getBranchId(), event.getMedicineId(), event.getNewTotalStock(),event.getMedicineName(),event.getMrp());
+        storefrontService.updateProductStockLevel(event.getOrganizationId(),event.getBranchId(), event.getMedicineId(), event.getNewTotalStock(),event.getMedicineName(),event.getMrp(),event.getTaxprofileId(),event.getGstType(),event.getCategory());
+
         return ResponseEntity.ok().build();
     }
 }
