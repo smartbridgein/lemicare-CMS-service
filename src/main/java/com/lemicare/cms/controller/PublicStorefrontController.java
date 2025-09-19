@@ -42,6 +42,24 @@ public class PublicStorefrontController {
     private final StorefrontService storefrontService;
 
     /**
+     * Fetches a paginated and filterable list of all visible products for a store.
+     */
+    @GetMapping("/{orgId}/products")
+    public ResponseEntity<List<StorefrontProduct>> listPublicProducts(
+            @PathVariable String orgId
+            // @RequestParam(required = false) String categoryId,
+            // @RequestParam(defaultValue = "0") int page,
+            //@RequestParam(defaultValue = "20") int size,
+            // @RequestParam(required = false) String startAfter // For Firestore cursor pagination
+    ) {
+        /*PaginatedResponse<PublicProductListResponse> products = storefrontService.listPublicProducts(orgId, categoryId, page, size, startAfter);
+        return ResponseEntity.ok(products);*/
+        List<StorefrontProduct> products = storefrontService.getAvailableProducts(orgId);
+        return ResponseEntity.ok(products);
+
+    }
+
+    /**
      * Fetches the complete, combined details for a single product to display on a product page.
      * This is an orchestrator endpoint that gathers data from both the CMS and Inventory services.
      *
@@ -73,23 +91,6 @@ public class PublicStorefrontController {
         }
     }
 
-    /**
-     * Fetches a paginated and filterable list of all visible products for a store.
-     */
-    @GetMapping("/{orgId}/products")
-    public ResponseEntity<List<StorefrontProduct>> listPublicProducts(
-            @PathVariable String orgId
-           // @RequestParam(required = false) String categoryId,
-           // @RequestParam(defaultValue = "0") int page,
-            //@RequestParam(defaultValue = "20") int size,
-           // @RequestParam(required = false) String startAfter // For Firestore cursor pagination
-    ) {
-        /*PaginatedResponse<PublicProductListResponse> products = storefrontService.listPublicProducts(orgId, categoryId, page, size, startAfter);
-        return ResponseEntity.ok(products);*/
-        List<StorefrontProduct> products = storefrontService.getAvailableProducts(orgId);
-        return ResponseEntity.ok(products);
-
-    }
 
 
     /**
