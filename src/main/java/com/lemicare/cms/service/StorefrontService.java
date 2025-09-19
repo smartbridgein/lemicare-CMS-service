@@ -748,6 +748,12 @@ public class StorefrontService {
          return paymentServiceClient.createPaymentOrder(request);
 
     }
+
+    public StorefrontProduct getProductById(String orgId, String productId) {
+        StorefrontProduct product = storefrontProductRepository.findById(orgId, productId)
+                .orElseThrow(() -> new ResourceNotFoundException("Storefront Product with ID " + productId + " not found for update."));
+    return product;
+    }
 }
 
 

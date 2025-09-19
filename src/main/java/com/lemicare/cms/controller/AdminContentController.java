@@ -2,11 +2,9 @@ package com.lemicare.cms.controller;
 
 import com.cosmicdoc.common.model.StorefrontCategory;
 import com.cosmicdoc.common.model.StorefrontProduct;
+import com.cosmicdoc.common.repository.StorefrontCategoryRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lemicare.cms.dto.request.CategoryRequestDto;
 import com.lemicare.cms.dto.request.ProductEnrichmentRequestDto;
-import com.lemicare.cms.dto.response.PaginatedResponse;
-import com.lemicare.cms.dto.response.PublicProductListResponse;
 import com.lemicare.cms.security.SecurityUtils;
 import com.lemicare.cms.service.StorefrontService;
 import jakarta.validation.Valid;
@@ -19,6 +17,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
 @RestController
@@ -29,39 +28,11 @@ public class AdminContentController {
     private final ObjectMapper objectMapper;
     private final StorefrontService storefrontService;
 
-    // --- Category Endpoints ---
-  /*  @PostMapping("/categories")
-    public ResponseEntity<StorefrontCategory> createCategory(@Valid @RequestBody CategoryRequestDto request) {
-        String orgId = SecurityUtils.getOrganizationId();
-        StorefrontCategory newCategory = storefrontService.createCategory(orgId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(newCategory);
-    }*/
-
-   /* @GetMapping("/categories")
-    public ResponseEntity<List<StorefrontCategory>> getCategories() {
-        String orgId = SecurityUtils.getOrganizationId();
-        return ResponseEntity.ok(storefrontService.getCategories(orgId));
-    }*/
-
-  /*  @PutMapping("/categories/{categoryId}")
-    public ResponseEntity<StorefrontCategory> updateCategory(@PathVariable String categoryId, @Valid @RequestBody CategoryRequestDto request) {
-        String orgId = SecurityUtils.getOrganizationId();
-        return ResponseEntity.ok(storefrontService.updateCategory(orgId, categoryId, request));
-    }*/
-
-   /* @DeleteMapping("/categories/{categoryId}")
-    public ResponseEntity<Void> deleteCategory(@PathVariable String categoryId) {
-        String orgId = SecurityUtils.getOrganizationId();
-        storefrontService.deleteCategory(orgId, categoryId);
-        return ResponseEntity.noContent().build();
-    }*/
 
     @GetMapping("/products")
     public ResponseEntity<List<StorefrontProduct>> products()
-
     {
         String orgId = SecurityUtils.getOrganizationId();
-
         List<StorefrontProduct> products = storefrontService.getAvailableProducts(orgId);
         return ResponseEntity.ok(products);
     }
@@ -100,8 +71,22 @@ public class AdminContentController {
         );
         return ResponseEntity.ok(updatedProduct);
     }
-    // --- Product Enrichment Endpoint ---
-    @PutMapping("/products/{productId}")
+    
+    // Get a single product by ID
+    @GetMapping("/products/{productId}")
+    public ResponseEntity<StorefrontProduct> getProductById(@PathVariable String productId) {
+        String orgId = SecurityUtils.getOrganizationId();
+        String branchId = SecurityUtils.getBranchId();
+
+        StorefrontProduct product = storefrontService.getProductById(orgId, productId);
+        if (product == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(product);
+    }
+
+    // Update product with JSON only (without files)
+    @PutMapping(value = "/products/{productId}/metadata", consumes = "application/json")
     public ResponseEntity<StorefrontProduct> enrichProduct(
             @PathVariable String productId,
             @Valid @RequestBody ProductEnrichmentRequestDto request) {
@@ -143,5 +128,65 @@ public class AdminContentController {
         StorefrontProduct updatedProduct = storefrontService.deleteProductImage(orgId, productId, assetId);
         return ResponseEntity.ok(updatedProduct);
     }
+    
+    /**
+     * Special endpoint for uploading images for new products that don't have an ID yet.
+     * This creates a temporary product and attaches the image to it.
+     */
+    @PostMapping("/products/new/images")
+    public ResponseEntity<StorefrontProduct> uploadImageForNewProduct(
+            @RequestParam("imageFile") MultipartFile imageFile,
+            @RequestParam(value = "altText", required = false) String altText,
+            @RequestParam(value = "displayOrder", defaultValue = "0") int displayOrder) 
+            throws IOException, ExecutionException, InterruptedException {
+
+        String orgId = SecurityUtils.getOrganizationId();
+        String branchId = SecurityUtils.getBranchId();
+        
+        // Create a temporary product ID
+        String tempProductId = "temp-" + System.currentTimeMillis();
+        
+        // Create a basic product first
+        ProductEnrichmentRequestDto basicProduct = new ProductEnrichmentRequestDto();
+        basicProduct.setVisible(false); // Not visible by default
+        
+        // Create the product first
+        storefrontService.enrichProduct(orgId, branchId, tempProductId, basicProduct);
+        
+        // Then upload the image to it
+        StorefrontProduct productWithImage = storefrontService.uploadProductImage(
+                orgId, tempProductId, imageFile, altText, displayOrder
+        );
+        
+        return ResponseEntity.status(HttpStatus.CREATED).body(productWithImage);
+    }
+
+    // --- Category Endpoints ---
+  /*  @PostMapping("/categories")
+    public ResponseEntity<StorefrontCategory> createCategory(@Valid @RequestBody CategoryRequestDto request) {
+        String orgId = SecurityUtils.getOrganizationId();
+        StorefrontCategory newCategory = storefrontService.createCategory(orgId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(newCategory);
+    }*/
+
+   /* @GetMapping("/categories")
+    public ResponseEntity<List<StorefrontCategory>> getCategories() {
+        String orgId = SecurityUtils.getOrganizationId();
+        return ResponseEntity.ok(storefrontService.getCategories(orgId));
+    }*/
+
+  /*  @PutMapping("/categories/{categoryId}")
+    public ResponseEntity<StorefrontCategory> updateCategory(@PathVariable String categoryId, @Valid @RequestBody CategoryRequestDto request) {
+        String orgId = SecurityUtils.getOrganizationId();
+        return ResponseEntity.ok(storefrontService.updateCategory(orgId, categoryId, request));
+    }*/
+
+   /* @DeleteMapping("/categories/{categoryId}")
+    public ResponseEntity<Void> deleteCategory(@PathVariable String categoryId) {
+        String orgId = SecurityUtils.getOrganizationId();
+        storefrontService.deleteCategory(orgId, categoryId);
+        return ResponseEntity.noContent().build();
+    }*/
+
 }
 
