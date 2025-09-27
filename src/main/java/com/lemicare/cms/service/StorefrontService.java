@@ -7,9 +7,12 @@ import com.cosmicdoc.common.repository.StorefrontProductRepository;
 import com.cosmicdoc.common.util.FirestorePage;
 import com.cosmicdoc.common.util.IdGenerator;
 import com.google.api.client.util.Strings;
-import com.google.api.gax.paging.Page;
+import com.google.cloud.Identity;
+import com.google.cloud.Policy;
+import com.google.cloud.Role;
 import com.google.cloud.Timestamp;
 import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.lemicare.cms.Exception.ResourceNotFoundException;
@@ -25,13 +28,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.IIOException;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +52,15 @@ public class StorefrontService {
     private final Storage storage; // Google Cloud Storage client
     PaymentServiceClient paymentServiceClient;
 
+    private static final Map<String, String> IMAGE_FORMAT_MAP = new HashMap<>();
+
+    static {
+        IMAGE_FORMAT_MAP.put(".jpg", "image/jpeg");
+        IMAGE_FORMAT_MAP.put(".jpeg", "image/jpeg");
+        IMAGE_FORMAT_MAP.put(".png", "image/png");
+        IMAGE_FORMAT_MAP.put(".gif", "image/gif");
+        IMAGE_FORMAT_MAP.put(".webp", "image/webp");
+    }
 
     @Value("${gcp.storage.bucket-name}")
     private String bucketName;
@@ -125,14 +142,14 @@ public class StorefrontService {
      * Handles uploading a product image to Google Cloud Storage, generating multiple sizes,
      * and updating the StorefrontProduct document with the image metadata.
      *
-     * @param orgId The organization ID.
-      * @param productId The ID of the product to associate the image with.
-     * @param imageFile The MultipartFile containing the image data.
-     * @param altText The alt text for the image.
+     * @param orgId        The organization ID.
+     * @param productId    The ID of the product to associate the image with.
+     * @param imageFile    The MultipartFile containing the image data.
+     * @param altText      The alt text for the image.
      * @param displayOrder The display order for the image in a gallery.
      * @return The updated StorefrontProduct document.
-     * @throws IOException If there's an issue reading/writing image data.
-     * @throws ExecutionException If Firestore operation fails.
+     * @throws IOException          If there's an issue reading/writing image data.
+     * @throws ExecutionException   If Firestore operation fails.
      * @throws InterruptedException If Firestore operation is interrupted.
      */
     public StorefrontProduct uploadProductImage(
@@ -184,7 +201,7 @@ public class StorefrontService {
                 .thumbnailUrl(thumbnailUrl)
                 .mediumUrl(mediumUrl)
                 .largeUrl(largeUrl)
-                .altText(altText != null ? altText : product.getProductName()+ " image") // Default alt text
+                .altText(altText != null ? altText : product.getProductName() + " image") // Default alt text
                 .displayOrder(displayOrder)
                 .build();
 
@@ -194,7 +211,6 @@ public class StorefrontService {
 
         return storefrontProductRepository.save(product);
     }
-
 
 
     /**
@@ -214,7 +230,7 @@ public class StorefrontService {
         StorefrontProduct storefrontProduct = storefrontProductRepository.findById(orgId, productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found."));
 
-       // String sourceBranchId = storefrontProduct.getBranchId();
+        // String sourceBranchId = storefrontProduct.getBranchId();
         /*if (sourceBranchId == null) {
             // Product has not been fully configured for sale
             throw new ResourceNotFoundException("Product not available for online sale.");
@@ -229,7 +245,7 @@ public class StorefrontService {
         // Step B & C: (Internal API Call) Call the inventory-service via Feign.
         // ===================================================================
         // The Feign client will automatically handle authentication.
-       // MedicineStockResponse inventoryData = inventoryServiceClient.getMedicineDetails(productId);
+        // MedicineStockResponse inventoryData = inventoryServiceClient.getMedicineDetails(productId);
 
         // Also fetch the category name for display
         String categoryName = storefrontProduct.getCategoryName() != null ? storefrontProduct.getCategoryName() : "Uncategorized";
@@ -242,7 +258,7 @@ public class StorefrontService {
                 .productId(storefrontProduct.getProductId())
                 .name(storefrontProduct.getProductName())
                 .genericName(storefrontProduct.getSlug())
-               // .manufacturer(inventoryData.getManufacturer())
+                // .manufacturer(inventoryData.getManufacturer())
 
                 .availableStock(storefrontProduct.getStockLevel()) // Assuming this is on the detail response
                 .mrp(storefrontProduct.getMrp())
@@ -252,11 +268,9 @@ public class StorefrontService {
                 .categoryName(categoryName)
                 .build();
 
-           //incrediants
-           //offer  --> next release ,promo code --> discount
+        //incrediants
+        //offer  --> next release ,promo code --> discount
     }
-
-
 
 
     public PaginatedResponse<PublicProductListResponse> findAllByOrganizationlistPublicProducts(
@@ -292,22 +306,22 @@ public class StorefrontService {
                 .collect(Collectors.toList());
 
         // 3. Make a single, efficient batch API call to the inventory service.
-      //  MedicineStockRequest stockRequest = new MedicineStockRequest(medicineIds);
-       // List<MedicineStockResponse> inventoryData = inventoryServiceClient.getStockLevelsForMedicines(stockRequest);
+        //  MedicineStockRequest stockRequest = new MedicineStockRequest(medicineIds);
+        // List<MedicineStockResponse> inventoryData = inventoryServiceClient.getStockLevelsForMedicines(stockRequest);
 
         // Create a lookup map for easy access
-       // Map<String, MedicineStockResponse> inventoryMap = inventoryData.stream()
-       //         .collect(Collectors.toMap(MedicineStockResponse::getMedicineId, Function.identity()));
+        // Map<String, MedicineStockResponse> inventoryMap = inventoryData.stream()
+        //         .collect(Collectors.toMap(MedicineStockResponse::getMedicineId, Function.identity()));
 
         // 4. Combine the two data sources into the final response DTO.
         List<PublicProductListResponse> responseList = cmsProducts.stream().map(cmsProduct -> {
-           // MedicineStockResponse stockInfo = inventoryMap.get(cmsProduct.getProductId());
-          //  if (stockInfo == null) {
-                // If a product from CMS is not found in inventory, decide how to handle.
-                // Current code returns null, which then gets filtered out.
-                // This correctly ensures only products with inventory data are shown.
-                //return null;
-          //  }
+            // MedicineStockResponse stockInfo = inventoryMap.get(cmsProduct.getProductId());
+            //  if (stockInfo == null) {
+            // If a product from CMS is not found in inventory, decide how to handle.
+            // Current code returns null, which then gets filtered out.
+            // This correctly ensures only products with inventory data are shown.
+            //return null;
+            //  }
 
             return PublicProductListResponse.builder()
                     .productId(cmsProduct.getProductId())
@@ -329,7 +343,7 @@ public class StorefrontService {
         );
     }
 
-    public void updateProductStockLevel(String orgId,String branchId, String productId, int newStockLevel,String productName, Double mrp,String taxProfileId, String gstType,String category ) {
+    public void updateProductStockLevel(String orgId, String branchId, String productId, int newStockLevel, String productName, Double mrp, String taxProfileId, String gstType, String category) {
         // The branchId needs to be part of the key for StorefrontProduct
         // If the StockLevelChangedEvent doesn't carry branchId, you'll need a strategy
         // (e.g., assume a default branch, or publish an event per branch if stock is branch-specific)
@@ -363,7 +377,7 @@ public class StorefrontService {
             isNewProduct = true;
         }
 
-        if(product.getProductId() == null || product.getProductId().isEmpty()) {
+        if (product.getProductId() == null || product.getProductId().isEmpty()) {
             product.setProductId(productId);
         }
         // Always update core product details that come from inventory
@@ -391,7 +405,7 @@ public class StorefrontService {
     private String deriveStockStatus(int quantity) {
         if (quantity <= 0) {
             return "Out of Stock";
-        }  else {
+        } else {
             return "In Stock";
         }
     }
@@ -399,11 +413,11 @@ public class StorefrontService {
     /**
      * Deletes an image from Cloud Storage and removes its metadata from the StorefrontProduct.
      *
-     * @param orgId The organization ID.
+     * @param orgId     The organization ID.
      * @param productId The ID of the product.
-     * @param assetId The unique ID of the image asset to delete.
+     * @param assetId   The unique ID of the image asset to delete.
      * @return The updated StorefrontProduct document.
-     * @throws ExecutionException If Firestore operation fails.
+     * @throws ExecutionException   If Firestore operation fails.
      * @throws InterruptedException If Firestore operation is interrupted.
      */
     public StorefrontProduct deleteProductImage(String orgId, String productId, String assetId) throws ExecutionException, InterruptedException {
@@ -443,7 +457,7 @@ public class StorefrontService {
      * @throws ExecutionException If Firestore operation fails.
      * @throws InterruptedException If Firestore operation is interrupted.
      */
-    public StorefrontProduct updateProduct(
+   /* public StorefrontProduct updateProduct(
             String orgId, String branchId, String productId,
             ProductEnrichmentRequestDto request, MultipartFile[] imageFiles)
             throws IOException, ExecutionException, InterruptedException {
@@ -574,11 +588,11 @@ public class StorefrontService {
         return storefrontProductRepository.save(product);
     }
 
-
+*/
     /**
      * Helper method to generate a resized image and upload it to GCS.
      */
-    private String generateAndUploadResizedImage(
+   /* private String generateAndUploadResizedImage(
             InputStream originalImageStream,
             String basePath,
             String sizePrefix,
@@ -603,21 +617,21 @@ public class StorefrontService {
         );
         return resizedBlobInfo.getMediaLink();
     }
+*/
 
     /**
      * Helper method to delete all associated blobs for an image asset from GCS.
      */
-    private void deleteImageFilesFromGCS(String orgId, String productId, String assetId) {
+    /*private void deleteImageFilesFromGCS(String orgId, String productId, String assetId) {
         String basePath = String.format("images/%s/%s/%s/", orgId, productId, assetId);
         for (Blob blob : storage.list(bucketName, Storage.BlobListOption.prefix(basePath)).iterateAll()) {
             blob.delete();
             log.info("Deleted GCS blob: {}", blob.getName());
         }
         log.info("Image asset {} and associated GCS files deleted for product {}", assetId, productId);
-    }
-
+    }*/
     public List<StorefrontProduct> getAvailableProducts(String orgId) {
-          return storefrontProductRepository.findAllByOrganizationId(orgId);
+        return storefrontProductRepository.findAllByOrganizationId(orgId);
     }
 
     public StorefrontOrder createPendingOrder(String orgId, InitiateCheckoutRequest request)
@@ -669,7 +683,7 @@ public class StorefrontService {
 
             // Example tax components (replace with actual breakdown)
             List<TaxComponent> taxComponents = new ArrayList<>();
-           // taxComponents.add(TaxComponent.builder().name("CGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
+            // taxComponents.add(TaxComponent.builder().name("CGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
             //taxComponents.add(TaxComponent.builder().name("SGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
 
 
@@ -745,15 +759,410 @@ public class StorefrontService {
 
     public CreateOrderResponse createPaymentOrder(String orgId, CreateOrderRequest request) {
 
-         return paymentServiceClient.createPaymentOrder(request);
+        return paymentServiceClient.createPaymentOrder(request);
 
     }
 
     public StorefrontProduct getProductById(String orgId, String productId) {
         StorefrontProduct product = storefrontProductRepository.findById(orgId, productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Storefront Product with ID " + productId + " not found for update."));
-    return product;
+        return product;
+    }
+
+    public StorefrontProduct updateProduct(
+            String orgId, String branchId, String productId, // branchId is currently unused
+            ProductEnrichmentRequestDto request, MultipartFile[] imageFiles)
+            throws IOException, ExecutionException, InterruptedException { // Consider more specific exceptions or wrap them
+
+        // --- 0. Input Validation ---
+        if (orgId == null || orgId.isEmpty()) {
+            throw new IllegalArgumentException("Organization ID cannot be null or empty.");
+        }
+        if (productId == null || productId.isEmpty()) {
+            throw new IllegalArgumentException("Product ID cannot be null or empty.");
+        }
+        if (request == null) {
+            throw new IllegalArgumentException("Product enrichment request cannot be null.");
+        }
+
+        StorefrontProduct product = storefrontProductRepository.findById(orgId, productId)
+                .orElseThrow(() -> new ResourceNotFoundException("Storefront Product with ID " + productId + " not found for update."));
+
+        // --- 1. Update general product metadata fields ---
+        if (!Strings.isNullOrEmpty(request.getRichDescription())) {
+            product.setRichDescription(request.getRichDescription());
+        }
+        if (!Strings.isNullOrEmpty(request.getHighLights())) {
+            product.setHighlights(request.getHighLights());
+        }
+        product.setVisible(request.isVisible()); // Boolean, usually not null
+        if (!Strings.isNullOrEmpty(request.getCategoryId())) {
+            product.setCategoryName(request.getCategoryId()); // Using categoryId for categoryName
+        }
+        if (!Strings.isNullOrEmpty(request.getSlug())) {
+            product.setSlug(request.getSlug());
+        }
+        if (request.getTags() != null) {
+            product.setTags(new ArrayList<>(request.getTags())); // Defensive copy
+        }
+
+        // --- 2. Process Images (Deletions, Updates, New Uploads) ---
+        List<ImageAsset> currentImages = product.getImages() != null ? new ArrayList<>(product.getImages()) : new ArrayList<>();
+        List<ImageAsset> updatedImages = new ArrayList<>(); // This will hold the final list of images
+
+        // Map existing images by assetId for quick lookup/modification
+        Map<String, ImageAsset> existingImageMap = currentImages.stream()
+                .collect(Collectors.toMap(ImageAsset::getAssetId, Function.identity()));
+
+        // Separate metadata for new uploads from updates/deletions of existing images
+        List<ProductEnrichmentRequestDto.ImageMetadataDto> newImageMetadataQueue = new ArrayList<>();
+
+        if (request.getImages() != null) {
+            for (ProductEnrichmentRequestDto.ImageMetadataDto imageMetadata : request.getImages()) {
+                if (imageMetadata.getAssetId() != null && existingImageMap.containsKey(imageMetadata.getAssetId())) {
+                    // This is an existing image based on assetId
+                    if (imageMetadata.isDelete()) {
+                        log.info("Deleting image asset: {} for product: {}", imageMetadata.getAssetId(), productId);
+                        deleteImageFilesFromGCS(orgId, productId, imageMetadata.getAssetId());
+                        existingImageMap.remove(imageMetadata.getAssetId()); // Remove from map as it's deleted
+                    } else {
+                        // Update metadata for existing image
+                        ImageAsset imgAsset = existingImageMap.get(imageMetadata.getAssetId());
+                        imgAsset.setAltText(imageMetadata.getAltText());
+                        imgAsset.setDisplayOrder(imageMetadata.getDisplayOrder());
+                        updatedImages.add(imgAsset); // Add updated existing image to the new list
+                        existingImageMap.remove(imageMetadata.getAssetId()); // Remove from map so it's not added again later
+                    }
+                } else if (imageMetadata.getAssetId() == null && !imageMetadata.isDelete()) {
+                    // This metadata corresponds to a new image that will be uploaded.
+                    newImageMetadataQueue.add(imageMetadata);
+                }
+                // If assetId is present but not in existingImageMap, it might be an invalid ID or already deleted.
+                // We'll implicitly ignore it for now and log a warning if desired.
+                else if (imageMetadata.getAssetId() != null && !existingImageMap.containsKey(imageMetadata.getAssetId())) {
+                    log.warn("Received metadata for non-existent or already deleted image asset: {} for product: {}",
+                            imageMetadata.getAssetId(), productId);
+                }
+            }
+        }
+
+        // Add any remaining existing images (those whose metadata wasn't sent in the request, or weren't marked for deletion)
+        updatedImages.addAll(existingImageMap.values());
+
+
+        // --- 3. Handle new image file uploads ---
+        // This assumes a 1:1 positional correspondence between imageFiles and newImageMetadataQueue.
+        // For production, if order cannot be guaranteed, client-generated temporary IDs in both
+        // MultipartFile and ImageMetadataDto are recommended for robust matching.
+        for (int i = 0; i < imageFiles.length; i++) {
+            MultipartFile imageFile = imageFiles[i];
+            if (imageFile == null || imageFile.isEmpty()) {
+                log.warn("Skipping empty or null MultipartFile at index {}", i);
+                continue;
+            }
+
+            try {
+                String assetId = IdGenerator.newId("IMG");
+                String originalFileName = imageFile.getOriginalFilename();
+                String fileExtension = getFileExtension(originalFileName);
+                String contentType = getContentType(fileExtension, imageFile.getContentType());
+
+                String basePath = String.format("images/%s/%s/%s/", orgId, productId, assetId);
+
+                // 1. Upload Original Image
+                String originalBlobName = basePath + "original" + fileExtension;
+                BlobInfo originalBlobInfo = storage.create(
+                        BlobInfo.newBuilder(bucketName, originalBlobName)
+                                .setContentType(contentType)
+                                .build(),
+                        imageFile.getInputStream()
+                );
+                // Make the original object publicly readable via IAM after creation
+                makeBlobPubliclyReadable(originalBlobInfo.getBlobId());
+                String originalUrl = originalBlobInfo.getMediaLink();
+                log.info("Uploaded original image: {} to GCS", originalUrl);
+
+                // 2. Generate and Upload Resized Images
+                byte[] imageBytes = imageFile.getBytes(); // Read bytes once
+                String thumbnailUrl = generateAndUploadResizedImage(
+                        new ByteArrayInputStream(imageBytes), basePath, "thumb", fileExtension, 200, 200);
+                String mediumUrl = generateAndUploadResizedImage(
+                        new ByteArrayInputStream(imageBytes), basePath, "medium", fileExtension, 600, 600);
+                String largeUrl = generateAndUploadResizedImage(
+                        new ByteArrayInputStream(imageBytes), basePath, "large", fileExtension, 1200, 1200);
+
+                log.info("Uploaded resized images for assetId: {}", assetId);
+
+                // 3. Create new ImageAsset
+                ProductEnrichmentRequestDto.ImageMetadataDto correspondingMetadata = null;
+                if (i < newImageMetadataQueue.size()) {
+                    correspondingMetadata = newImageMetadataQueue.get(i);
+                }
+
+                String altText = (correspondingMetadata != null && !Strings.isNullOrEmpty(correspondingMetadata.getAltText()))
+                        ? correspondingMetadata.getAltText()
+                        : (product.getProductName() != null ? product.getProductName() : "Product") + " image " + (updatedImages.size() + 1);
+                int displayOrder = (correspondingMetadata != null)
+                        ? correspondingMetadata.getDisplayOrder()
+                        : (updatedImages.size() + 1); // Assign a unique default order
+
+                ImageAsset newImageAsset = ImageAsset.builder()
+                        .assetId(assetId)
+                        .originalUrl(originalUrl)
+                        .thumbnailUrl(thumbnailUrl)
+                        .mediumUrl(mediumUrl)
+                        .largeUrl(largeUrl)
+                        .altText(altText)
+                        .displayOrder(displayOrder)
+                        .fileExtension(fileExtension) // Store extension for consistent deletion
+                        .build();
+                updatedImages.add(newImageAsset);
+
+            } catch (IOException e) {
+                log.error("Failed to process image file at index {}: {}", i, e.getMessage(), e);
+                // Depending on requirements, you might want to re-throw, or continue and log,
+                // or rollback previously uploaded images.
+                throw new IOException("Failed to process image file for upload: " + e.getMessage(), e);
+            }
+        }
+
+        // Sort all images by display order before saving
+        // Use a stable sort to ensure consistent order if displayOrder values are the same
+        updatedImages.sort(Comparator.comparingInt(ImageAsset::getDisplayOrder));
+        product.setImages(updatedImages);
+
+        // --- 4. Save the final updated product ---
+        try {
+            return storefrontProductRepository.save(product);
+        } catch (Exception e) {
+            log.error("Failed to save product {} after image updates: {}", productId, e.getMessage(), e);
+            // Consider transaction management or rollback for uploaded GCS files if database save fails
+            throw new RuntimeException("Failed to save product changes.", e);
+        }
+    }
+
+    /**
+     * Helper method to determine file extension from filename.
+     */
+    private String getFileExtension(String fileName) {
+        if (fileName != null && fileName.contains(".")) {
+            String extension = fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
+            if (IMAGE_FORMAT_MAP.containsKey(extension)) {
+                return extension;
+            }
+        }
+        return ".jpg"; // Default to JPG
+    }
+
+    /**
+     * Helper method to determine content type.
+     */
+    private String getContentType(String fileExtension, String defaultContentType) {
+        String mappedContentType = IMAGE_FORMAT_MAP.get(fileExtension);
+        if (mappedContentType != null) {
+            return mappedContentType;
+        }
+        return (defaultContentType != null && defaultContentType.startsWith("image/")) ? defaultContentType : "image/jpeg";
+    }
+
+    /**
+     * Helper method to delete all versions of an image from GCS based on assetId.
+     * In a real application, you might want to log these deletions or use soft deletes.
+     * Assumes consistent naming convention (original, thumb, medium, large) and stored extension.
+     */
+    private void deleteImageFilesFromGCS(String orgId, String productId, String assetId) {
+        // Find the image asset in the current product to get its exact file extension
+        String storedFileExtension = ".jpg"; // Default in case asset not found or no extension stored
+        Optional<ImageAsset> assetToDelete = storefrontProductRepository.findById(orgId, productId)
+                .flatMap(p -> p.getImages().stream()
+                        .filter(img -> img.getAssetId().equals(assetId))
+                        .findFirst());
+        if (assetToDelete.isPresent() && !Strings.isNullOrEmpty(assetToDelete.get().getFileExtension())) {
+            storedFileExtension = assetToDelete.get().getFileExtension();
+        } else {
+            log.warn("Could not find image asset {} or its file extension for product {}. Attempting deletion with default extensions.", assetId, productId);
+        }
+
+
+        String basePath = String.format("images/%s/%s/%s/", orgId, productId, assetId);
+        List<String> blobNamesToDelete = new ArrayList<>();
+        blobNamesToDelete.add(basePath + "original" + storedFileExtension);
+        blobNamesToDelete.add(basePath + "thumb" + storedFileExtension);
+        blobNamesToDelete.add(basePath + "medium" + storedFileExtension);
+        blobNamesToDelete.add(basePath + "large" + storedFileExtension);
+
+        // If the stored extension wasn't found, or as a fallback, try common extensions
+        if (!IMAGE_FORMAT_MAP.containsKey(storedFileExtension)) {
+            IMAGE_FORMAT_MAP.keySet().forEach(ext -> {
+                blobNamesToDelete.add(basePath + "original" + ext);
+                blobNamesToDelete.add(basePath + "thumb" + ext);
+                blobNamesToDelete.add(basePath + "medium" + ext);
+                blobNamesToDelete.add(basePath + "large" + ext);
+            });
+        }
+
+
+        for (String blobName : blobNamesToDelete) {
+            try {
+                if (storage.delete(BlobId.of(bucketName, blobName))) {
+                    log.debug("Successfully deleted GCS blob: {}", blobName);
+                } else {
+                    log.debug("GCS blob not found or already deleted: {}", blobName);
+                }
+            } catch (Exception e) {
+                log.error("Error deleting GCS blob {}: {}", blobName, e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Resizes an image from an InputStream and uploads it to Google Cloud Storage.
+     * The uploaded image is made publicly readable via IAM after creation.
+     *
+     * @param originalImageStream The input stream of the original image bytes. This stream will be closed.
+     * @param basePath            The base path in GCS (e.g., "images/orgId/productId/assetId/")
+     * @param sizeQualifier       A string to append to the filename (e.g., "thumb", "medium", "large")
+     * @param fileExtension       The file extension for the output (e.g., ".jpg", ".png")
+     * @param targetWidth         The desired width for the resized image.
+     * @param targetHeight        The desired height for the resized image.
+     * @return The public URL of the uploaded resized image.
+     * @throws IOException If an I/O error occurs during image processing or upload.
+     */
+    private String generateAndUploadResizedImage(
+            InputStream originalImageStream, String basePath, String sizeQualifier,
+            String fileExtension, int targetWidth, int targetHeight) throws IOException {
+
+        BufferedImage originalImage = null;
+        try {
+            originalImage = ImageIO.read(originalImageStream);
+        } catch (IIOException e) {
+            throw new IOException("Failed to read image for resizing. Invalid image format? " + e.getMessage(), e);
+        } finally {
+            try {
+                if (originalImageStream != null) originalImageStream.close();
+            } catch (IOException e) {
+                log.warn("Failed to close original image stream during resizing for basePath: {}", basePath, e);
+            }
+        }
+
+        if (originalImage == null) {
+            throw new IOException("Could not read image for resizing from provided stream. Original image was null.");
+        }
+
+        int originalWidth = originalImage.getWidth();
+        int originalHeight = originalImage.getHeight();
+
+        // Avoid division by zero if image dimensions are invalid
+        if (originalWidth <= 0 || originalHeight <= 0) {
+            throw new IOException("Invalid original image dimensions: " + originalWidth + "x" + originalHeight);
+        }
+
+        double aspectRatio = (double) originalWidth / originalHeight;
+
+        int newWidth = targetWidth;
+        int newHeight = (int) (newWidth / aspectRatio);
+
+        if (newHeight > targetHeight) {
+            newHeight = targetHeight;
+            newWidth = (int) (newHeight * aspectRatio);
+        }
+
+        // Ensure new dimensions are positive
+        newWidth = Math.max(1, newWidth);
+        newHeight = Math.max(1, newHeight);
+
+        // Create a new buffered image with the desired size and type
+        // TYPE_INT_RGB is generally suitable for JPEG, use TYPE_INT_ARGB for PNG with transparency
+        int imageType = (fileExtension.equalsIgnoreCase(".png") || fileExtension.equalsIgnoreCase(".gif"))
+                ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+        BufferedImage resizedImage = new BufferedImage(newWidth, newHeight, imageType);
+
+        // Draw the original image onto the new image, scaling it
+        java.awt.Graphics2D g = resizedImage.createGraphics();
+        g.drawImage(originalImage, 0, 0, newWidth, newHeight, null);
+        g.dispose(); // Release graphics resources
+
+        // Prepare to upload the resized image
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        String formatName = fileExtension.substring(1); // e.g., "jpg", "png"
+        if (!ImageIO.write(resizedImage, formatName, os)) {
+            throw new IOException("Could not write resized image to output stream for format: " + formatName);
+        }
+        ByteArrayInputStream resizedInputStream = new ByteArrayInputStream(os.toByteArray());
+
+        String resizedBlobName = basePath + sizeQualifier + fileExtension;
+        String contentType = getContentType(fileExtension, null); // Get proper content type
+
+        // Upload resized image to GCS
+        BlobInfo resizedBlobInfo = storage.create(
+                BlobInfo.newBuilder(bucketName, resizedBlobName)
+                        .setContentType(contentType)
+                        .build(),
+                resizedInputStream
+        );
+
+        // Make the resized object publicly readable via IAM after creation
+        makeBlobPubliclyReadable(resizedBlobInfo.getBlobId());
+
+        return resizedBlobInfo.getMediaLink();
+    }
+
+    /**
+     * Helper method to make a GCS blob publicly readable by adding an IAM policy binding.
+     * Grants the 'roles/storage.objectViewer' role to 'allUsers' for the specified blob.
+     */
+    /**
+     * Helper method to make a GCS blob publicly readable by adding an IAM policy binding.
+     * Grants the 'roles/storage.objectViewer' role to 'allUsers' for the specified blob.
+     * This version correctly uses Blob.getIamPolicy() and Blob.setIamPolicy().
+     */
+
+    private void makeBlobPubliclyReadable(BlobId blobId) {
+        String blobName = blobId.getName();
+        Role objectViewerRole = Role.of("roles/storage.objectViewer");
+        Identity allUsersIdentity = Identity.allUsers();
+
+        try {
+            // 1. Get the current IAM policy for the blob
+            // IMPORTANT: storage.getIamPolicy takes BlobId, not String.
+            Policy currentPolicy = storage.getIamPolicy(String.valueOf(blobId));
+
+            // 2. Check if 'allUsers' is already granted 'objectViewerRole' in the *current* policy
+            // Policy.getBindings() returns a Map<Role, Set<Identity>>
+            Map<Role, Set<Identity>> currentBindings = currentPolicy.getBindings();
+
+            // Get the identities currently bound to the objectViewerRole.
+            // If the role isn't in the map, get an empty set to avoid NullPointerException.
+            Set<Identity> identitiesForRole = currentBindings.getOrDefault(objectViewerRole, new HashSet<>());
+
+            boolean bindingExists = identitiesForRole.contains(allUsersIdentity);
+
+            if (!bindingExists) {
+                // If it doesn't exist, create a mutable builder from the current policy
+                Policy.Builder policyBuilder = currentPolicy.toBuilder();
+
+                // Add 'allUsers' to the 'objectViewerRole'
+                policyBuilder.addIdentity(objectViewerRole, allUsersIdentity);
+                log.debug("Added new IAM binding for allUsers as objectViewer to blob: {}", blobName);
+
+                // Set the updated IAM policy for the blob
+                // IMPORTANT: storage.setIamPolicy takes BlobId, not String.
+                storage.setIamPolicy(String.valueOf(blobId), policyBuilder.build());
+                log.info("Blob {} in bucket {} is now publicly readable.", blobName, blobId.getBucket());
+
+            } else {
+                log.debug("IAM binding for allUsers as objectViewer already exists for blob: {}", blobName);
+                log.info("Blob {} in bucket {} was already publicly readable.", blobName, blobId.getBucket());
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to make blob {} publicly readable: {}", blobName, e.getMessage(), e);
+            throw new RuntimeException("Failed to set public read access for blob: " + blobName, e);
+        }
     }
 }
+
+
+
 
 
