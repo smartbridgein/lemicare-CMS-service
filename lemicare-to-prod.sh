@@ -7,7 +7,7 @@ set -euo pipefail
 # =========================
 # Configuration
 # =========================
-PROJECT_ID="lemicare-prod"
+PROJECT_ID="lemicareprod"
 REGION="asia-south1"
 SERVICE_NAME="lemicare-cms-service"
 IMAGE="gcr.io/${PROJECT_ID}/${SERVICE_NAME}:latest"
@@ -70,8 +70,8 @@ if gcloud run deploy ${SERVICE_NAME} \
     --memory=512Mi \
     --cpu=1 \
     --port=8087 \
-    --set-env-vars=SPRING_PROFILES_ACTIVE=cloud,ALLOWED_ORIGINS=https://healthcare-app-145837205370.asia-south1.run.app; then
-  echo "✅ Service deployed successfully"
+    --set-env-vars="SPRING_PROFILES_ACTIVE=cloud,ALLOWED_ORIGINS=*"; then
+      echo "✅ Service deployed successfully"
 else
   echo "❌ Service deployment failed"
   exit 1
