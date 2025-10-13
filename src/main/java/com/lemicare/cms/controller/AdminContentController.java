@@ -23,7 +23,7 @@ import java.util.concurrent.ExecutionException;
 @RestController
 @RequestMapping("/api/admin/storefront") // Admin-specific path
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
+//@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_SUPER_ADMIN')")
 public class AdminContentController {
     private final ObjectMapper objectMapper;
     private final StorefrontService storefrontService;

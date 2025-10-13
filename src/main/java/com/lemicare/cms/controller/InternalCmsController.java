@@ -1,15 +1,14 @@
 package com.lemicare.cms.controller;
 
 import com.cosmicdoc.common.model.StockLevelChangedEvent;
+import com.cosmicdoc.common.model.StorefrontProduct;
+import com.lemicare.cms.Exception.ResourceNotFoundException;
 import com.lemicare.cms.service.StorefrontService;
 import io.swagger.v3.oas.annotations.Hidden;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/internal") // Internal path prefix
@@ -26,4 +25,11 @@ public class InternalCmsController {
 
         return ResponseEntity.ok().build();
     }
+
+    @GetMapping("/storefront/{orgId}/product/{productId}/details")
+    StorefrontProduct getProductDetails(@PathVariable("orgId") String orgId, @PathVariable("productId") String productId) {
+        return  storefrontService.getProductById(orgId,productId);
+    }
+
+
 }

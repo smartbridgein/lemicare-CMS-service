@@ -3,7 +3,7 @@
 # ===================================================================
 server:
   # A unique port for the storefront-service to avoid conflicts.
-  port: 8087
+  port: 8086
 
 # ===================================================================
 # CORE SPRING APPLICATION CONFIGURATION
@@ -68,7 +68,7 @@ services:
   payment-service:
     # The base URL of the storefront-service.
     # Feign will use this to construct the full request URL.
-    url: "http://localhost:8085" # <-- Port of your storefront-service
+    url: "http://localhost:8084" # <-- Port of your storefront-service
 
 
 # ===================================================================

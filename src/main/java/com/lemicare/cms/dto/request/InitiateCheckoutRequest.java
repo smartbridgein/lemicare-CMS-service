@@ -18,15 +18,17 @@ import java.util.Map;
 public class InitiateCheckoutRequest {
 
     // Customer Information
-    private String patientId; // Optional: if logged in patient
+    private String customerId; // Optional: if logged in patient
     @NotNull(message = "Customer information is required")
     private Map<String, String> customerInfo; // { "name", "email", "phone" }
 
-    @NotNull(message = "Shipping address is required")
+   // @NotNull(message = "Shipping address is required")
     private Map<String, String> shippingAddress; // { "street", "city", "state", "zip", "country" }
 
     // Items in Cart
     @NotEmpty(message = "Cart cannot be empty")
     @Valid // This ensures validation is applied to each item in the list
     private List<CartItemDto> cartItems;
+
+    private double shippingCost;
 }
