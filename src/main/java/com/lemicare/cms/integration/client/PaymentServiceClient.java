@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 public interface  PaymentServiceClient{
 
     @PostMapping("/api/internal/payments/create-order")
-    CreateOrderResponse createPaymentOrder(CreateOrderRequest request);
+    CreateOrderResponse createPaymentOrder( CreateOrderRequest request);
 
 }
 

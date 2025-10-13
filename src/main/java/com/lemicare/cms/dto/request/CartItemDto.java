@@ -24,16 +24,14 @@ public class CartItemDto {
     // SKU is optional, if not always present or relevant for initial checkout
     private String sku;
 
-    //@Positive(message = "Quantity must be positive")
+    @Positive(message = "Quantity must be positive")
     private int quantity;
 
     @Positive(message = "MRP per item must be positive")
     private double mrpPerItem;
 
-   // @PositiveOrZero(message = "Discount percentage cannot be negative")
+    @PositiveOrZero(message = "Discount percentage cannot be negative")
     private double discountPercentage; // Discount % applied to this item
-
-
 
     // The frontend should also send tax related info if it has it, or backend calculates it.
     // For simplicity, we'll assume the backend calculates full tax details.

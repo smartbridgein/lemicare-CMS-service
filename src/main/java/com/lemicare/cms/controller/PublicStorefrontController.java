@@ -91,6 +91,8 @@ public class PublicStorefrontController {
         }
     }
 
+
+
     /**
      * Fetches the list of all categories for a store's navigation.
      */
@@ -106,22 +108,34 @@ public class PublicStorefrontController {
             @Valid @RequestBody InitiateCheckoutRequest request) // @Valid triggers validation on the DTO
             throws ExecutionException, InterruptedException { // Or catch and handle specific exceptions
 
-       log.info("Initiating checkout for organization {} with {} cart items.", orgId, request.getCartItems().size());
+        // Security check (optional, but good practice): Ensure the orgId in path matches token's orgId
+        String userOrgId = SecurityUtils.getOrganizationId();
+        if (!userOrgId.equals(orgId)) {
+            log.warn("Security violation attempt: User from org {} trying to initiate checkout for org {}", userOrgId, orgId);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        log.info("Initiating checkout for organization {} with {} cart items.", orgId, request.getCartItems().size());
         StorefrontOrder pendingOrder = storefrontService.createPendingOrder(orgId, request);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(pendingOrder);
     }
 
-    @PostMapping(path = "/{orgId}/checkout/create-payment-order", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(path = "/{orgId}/checkout/{storefrontOrderId}/create-payment-order", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<CreateOrderResponse> createPaymentOrder(
             @PathVariable String orgId,
-            @RequestBody CreateOrderRequest request)
+            @PathVariable String storefrontOrderId,
+
+            @RequestBody CreatePaymentRequestBody body // local DTO below
+    )
     {
         // map to internal DTO
-
-        CreateOrderResponse resp = storefrontService.createPaymentOrder( request);
+        CreateOrderRequest req = new CreateOrderRequest(body.amount(), storefrontOrderId, "STOREFRONT","INR");
+        CreateOrderResponse resp = storefrontService.createPaymentOrder(orgId, req);
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(resp);
     }
+    public record CreatePaymentRequestBody(double amount) {}
+
 }
 
 

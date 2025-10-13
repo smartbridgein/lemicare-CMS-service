@@ -1,7 +1,5 @@
 package com.lemicare.cms.dto.request;
 
-import com.cosmicdoc.common.model.PhysicalDimensions;
-import com.cosmicdoc.common.model.Weight;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -17,11 +15,9 @@ public class ProductEnrichmentRequestDto {
     private String richDescription;
     private String categoryId;
     private List<String> tags;
-    private String highlights;
+    private String highLights;
     private String slug;
     private List<ImageMetadataDto> images;
-    private PhysicalDimensions dimensions; // Added PhysicalDimensions
-    private Weight weight;                 // Added Weight
 
     @Data
     @Builder
