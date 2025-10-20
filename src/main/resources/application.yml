@@ -3,7 +3,7 @@
 # ===================================================================
 server:
   # A unique port for the storefront-service to avoid conflicts.
-  port: 8087
+  port: 8086
 
 # ===================================================================
 # CORE SPRING APPLICATION CONFIGURATION
@@ -63,12 +63,12 @@ services:
   inventory:
     # We point to the API Gateway's address, as it's the single entry point.
     # The RestTemplate client will use this base URL.
-    url: "http://localhost:8082/api/inventory"
+    url: "https://lemicare-inventory-service-511338430385.asia-south1.run.app/api/inventory"
 
   payment-service:
     # The base URL of the storefront-service.
     # Feign will use this to construct the full request URL.
-    url: "http://localhost:8085" # <-- Port of your storefront-service
+    url: "https://lemicare-payment-service-511338430385.asia-south1.run.app" # <-- Port of your storefront-service
 
 
 # ===================================================================

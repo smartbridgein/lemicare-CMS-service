@@ -163,14 +163,14 @@
 						<image>eclipse-temurin:21-jre</image>
 					</from>
 					<to>
-						<image>gcr.io/${env.PROJECT_ID}/lemicare-payment-service:latest</image>
+						<image>gcr.io/${env.PROJECT_ID}/lemicare-cms-service:latest</image>
 					</to>
 					<container>
 						<jvmFlags>
 							<jvmFlag>-XX:InitialRAMPercentage=50</jvmFlag>
 							<jvmFlag>-XX:MaxRAMPercentage=70</jvmFlag>
 							<jvmFlag>-Djava.security.egd=file:/dev/./urandom</jvmFlag>
-							<jvmFlag>-Dserver.port=8087</jvmFlag>
+							<jvmFlag>-Dserver.port=8086</jvmFlag>
 							<jvmFlag>-Dspring.profiles.active=cloud</jvmFlag>
 						</jvmFlags>
 						<ports>

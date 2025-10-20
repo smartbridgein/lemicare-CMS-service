@@ -5,6 +5,7 @@ import com.cosmicdoc.common.model.*;
 import com.cosmicdoc.common.repository.StorefrontCategoryRepository;
 import com.cosmicdoc.common.repository.StorefrontOrderRepository;
 import com.cosmicdoc.common.repository.StorefrontProductRepository;
+import com.cosmicdoc.common.repository.TaxProfileRepository;
 import com.cosmicdoc.common.util.FirestorePage;
 import com.cosmicdoc.common.util.IdGenerator;
 import com.google.api.client.util.Strings;
@@ -33,6 +34,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
@@ -53,7 +56,8 @@ public class StorefrontService {
     private final StorefrontOrderRepository storefrontOrderRepository;
     private final InventoryServiceClient inventoryServiceClient;
     private final Storage storage; // Google Cloud Storage client
-    PaymentServiceClient paymentServiceClient;
+    private final PaymentServiceClient paymentServiceClient;
+    private final TaxProfileRepository taxProfileRepository;
 
     private static final Map<String, String> IMAGE_FORMAT_MAP = new HashMap<>();
 
@@ -122,8 +126,8 @@ public class StorefrontService {
         if (!Strings.isNullOrEmpty(request.getRichDescription())) {
             product.setRichDescription(request.getRichDescription());
         }
-        if (!Strings.isNullOrEmpty(request.getHighLights())) {
-            product.setHighlights(request.getHighLights());
+        if (!Strings.isNullOrEmpty(request.getHighlights())) {
+            product.setHighlights(request.getHighlights());
         }
         product.setVisible(request.isVisible()); // Boolean always updates
         if (!Strings.isNullOrEmpty(request.getCategoryId())) {
@@ -472,8 +476,8 @@ public class StorefrontService {
         if (!Strings.isNullOrEmpty(request.getRichDescription())) {
             product.setRichDescription(request.getRichDescription());
         }
-        if (!Strings.isNullOrEmpty(request.getHighLights())) {
-            product.setHighlights(request.getHighLights());
+        if (!Strings.isNullOrEmpty(request.getHighlights())) {
+            product.setHighlights(request.getHighlights());
         }
         product.setVisible(request.isVisible());
         if (!Strings.isNullOrEmpty(request.getCategoryId())) {
@@ -485,7 +489,15 @@ public class StorefrontService {
         if (request.getTags() != null) {
             product.setTags(request.getTags());
         }
-
+       // --- NEW: Handle PhysicalDimensions and Weight ---
+       // Only update if the request explicitly provides them
+       if (request.getDimensions() != null) {
+           product.setDimensions(request.getDimensions());
+       }
+       if (request.getWeight() != null) {
+           product.setWeight(request.getWeight());
+       }
+       // --- END NEW ---
         // --- 2. Process Images (Deletions, Updates, New Uploads) ---
         List<ImageAsset> currentImages = product.getImages() != null ? new ArrayList<>(product.getImages()) : new ArrayList<>();
         List<ImageAsset> updatedImages = new ArrayList<>();
@@ -679,15 +691,22 @@ public class StorefrontService {
             // 2. Customer's shipping address (state/country)
             // 3. Organization's tax settings
             // For now, let's assume a flat 18% GST (replace with actual logic)
-            double taxRateApplied = 18.0; // Example
+
+            Optional<StorefrontProduct> storefrontProduct= storefrontProductRepository.findById(orgId, cartItem.getProductId());
+            String taxProfileId = storefrontProduct.get().getTaxProfileId();
+
+            Optional<TaxProfile> taxProfile = taxProfileRepository.findById(orgId,taxProfileId);
+            BigDecimal taxRate = BigDecimal.valueOf(taxProfile.get().getTotalRate()).divide(new BigDecimal(100));
+            double taxRateApplied = 0.0; // Example
             double lineItemTaxableAmount = lineItemNetAfterDiscount; // Assuming discount before tax
             double lineItemTaxAmount = lineItemTaxableAmount * (taxRateApplied / 100.0);
             double lineItemTotalAmount = lineItemTaxableAmount + lineItemTaxAmount;
 
+
             // Example tax components (replace with actual breakdown)
             List<TaxComponent> taxComponents = new ArrayList<>();
-            // taxComponents.add(TaxComponent.builder().name("CGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
-            //taxComponents.add(TaxComponent.builder().name("SGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
+            // taxComponents.add(TaxComponent.builder().name("CGST").rate(9.0).lineItemGrossMrp(lineItemTaxAmount / 2).build());
+            // taxComponents.add(TaxComponent.builder().name("SGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
 
 
             StorefrontOrderItem orderItem = StorefrontOrderItem.builder()
@@ -706,13 +725,15 @@ public class StorefrontService {
                     // Tax Details Snapshot
                     // .gstType(verifiedTax.getGstType()) // Use actual tax type from lookup
                     // .taxProfileId(verifiedTax.getTaxProfileId())
+                    //.taxProfileId(taxProfileId)
                     .taxRateApplied(taxRateApplied) // Use actual rate
-                    .taxComponents(taxComponents) // Use actual components
+                    //.taxComponents(taxComponents) // Use actual components
                     .build();
             orderItems.add(orderItem);
 
             grandTotal += lineItemTotalAmount;
         }
+        grandTotal += request.getShippingCost();
 
         // --- Determine Branch ---
         // How do you determine the branchId?
@@ -721,15 +742,15 @@ public class StorefrontService {
         // 3. Default branch for the organization?
         // For now, we'll need to explicitly get it or assume it's passed or derived.
         // Let's assume it can be derived or picked from a default.
-        String branchId = determineFulfillingBranch(orgId, request.getShippingAddress()); // Implement this logic
+      //  String branchId = determineFulfillingBranch(orgId, request.getShippingAddress()); // Implement this logic
 
         StorefrontOrder order = StorefrontOrder.builder()
                 .orderId(orderId)
                 .organizationId(orgId)
-                .branchId(branchId) // CRITICAL: This needs to be correctly determined
-                .patientId(request.getPatientId())
+               // .branchId(branchId) // CRITICAL: This needs to be correctly determined
+                .patientId(request.getCustomerId())
                 .customerInfo(request.getCustomerInfo())
-                .shippingAddress(request.getShippingAddress())
+                 .shippingAddress(request.getShippingAddress())
                 .grandTotal(grandTotal)
                 .status("PENDING_PAYMENT") // Initial status
                 .createdAt(Timestamp.now())
@@ -760,7 +781,7 @@ public class StorefrontService {
         return "branch_default_001"; // Placeholder
     }
 
-    public CreateOrderResponse createPaymentOrder(String orgId, CreateOrderRequest request) {
+    public CreateOrderResponse createPaymentOrder( CreateOrderRequest request) {
 
         return paymentServiceClient.createPaymentOrder(request);
 
@@ -771,6 +792,160 @@ public class StorefrontService {
                 .orElseThrow(() -> new ResourceNotFoundException("Storefront Product with ID " + productId + " not found for update."));
         return product;
     }
+
+    public OrderDetailsDto getOrderDetails(String orgId, String orderId) {
+        StorefrontOrder order = storefrontOrderRepository.findById(orgId,orderId)
+         .orElseThrow(() -> new ResourceNotFoundException("Storefront order with ID " + orderId + " not found"));
+        return mapToOrderDetailsDto(order);
+    }
+
+    /**
+     * Maps a StorefrontOrder domain model to an OrderDetailsDto.
+     * This method contains the core mapping logic.
+     *
+     * @param storefrontOrder The domain model to map.
+     * @return The DTO representation.
+     */
+    private OrderDetailsDto mapToOrderDetailsDto(StorefrontOrder storefrontOrder) {
+        // --- Customer Name & Email Mapping ---
+        // Assuming customerInfo map contains "name" and "email" keys
+        String customerName = Optional.ofNullable(storefrontOrder.getCustomerInfo())
+                .map(info -> info.get("name"))
+                .orElse("N/A"); // Default or throw error if mandatory
+
+        String customerEmail = Optional.ofNullable(storefrontOrder.getCustomerInfo())
+                .map(info -> info.get("email"))
+                .orElse("N/A"); // Default or throw error if mandatory
+
+        // --- Customer Phone Mapping ---
+        String customerPhone = Optional.ofNullable(storefrontOrder.getCustomerInfo())
+                .map(info -> info.get("phone")) // <--- CHECK THIS KEY in Firestore!
+                .orElse(""); // Or throw error if mandatory
+        // --- Shipping Address Mapping ---
+        // Assuming shippingAddress map contains "addressLine1", "addressLine2", "city", "pincode", "state" keys
+        // You might need to adjust these keys based on your actual data in Firestore.
+        String shippingAddressLine1 = Optional.ofNullable(storefrontOrder.getShippingAddress())
+                .map(addr -> addr.get("street"))
+                .orElse("");
+        String shippingAddressLine2 = Optional.ofNullable(storefrontOrder.getShippingAddress())
+                .map(addr -> addr.get("street1"))
+                .orElse("");
+        String shippingCity = Optional.ofNullable(storefrontOrder.getShippingAddress())
+                .map(addr -> addr.get("city"))
+                .orElse("");
+        String shippingPincode = Optional.ofNullable(storefrontOrder.getShippingAddress())
+                .map(addr -> addr.get("zip"))
+                .orElse("");
+        String shippingState = Optional.ofNullable(storefrontOrder.getShippingAddress())
+                .map(addr -> addr.get("state"))
+                .orElse("");
+
+
+        // --- Items Mapping ---
+        List<OrderDetailsDto.OrderItemDto> itemDtos = Optional.ofNullable(storefrontOrder.getItems())
+                .orElse(List.of()) // Provide an empty list if items is null
+                .stream()
+                .map(this::mapStorefrontOrderItemToOrderItemDto)
+                .collect(Collectors.toList());
+
+        // --- Package Details (Hypothetical Calculation/Default) ---
+        // Your OrderDetailsDto has totalWeightKg, packageLengthCm, packageBreadthCm, packageHeightCm.
+        // These are not directly present in StorefrontOrder. You'll need to either:
+        // 1. Calculate them based on items (if items have weight/dimensions).
+        // 2. Fetch them from another source (e.g., product catalog).
+        // 3. Use default values for now.
+        // For this example, I'll use placeholders. You MUST replace this with actual logic.
+        Double calculatedTotalWeightKg = calculateTotalWeight(storefrontOrder.getItems()); // Implement this
+        Double calculatedPackageLengthCm = 20.0; // Placeholder: Replace with actual logic or config
+        Double calculatedPackageBreadthCm = 15.0; // Placeholder: Replace with actual logic or config
+        Double calculatedPackageHeightCm = 10.0; // Placeholder: Replace with actual logic or config
+
+        log.debug("Mapping StorefrontOrder {} to OrderDetailsDto", storefrontOrder.getOrderId());
+        return OrderDetailsDto.builder()
+                .orderId(storefrontOrder.getOrderId())
+                .customerName(customerName)
+                .customerEmail(customerEmail)
+                .customerPhone(customerPhone)
+                // Assuming paymentMethod is always "Prepaid" or "COD" and you get it from somewhere else
+                // For now, I'll default based on the common model, or you might have a paymentService.
+                // If paymentId leads to COD, then "COD", else "Prepaid"
+                .paymentMethod(determinePaymentMethod(storefrontOrder.getPaymentId()))
+                .totalOrderValue(storefrontOrder.getGrandTotal()) // Directly map grandTotal
+                .billingAddressLine1(shippingAddressLine1) // Assuming shipping is billing for now
+                .billingAddressLine2(shippingAddressLine2)
+                .billingCity(shippingCity)
+                .billingPincode(shippingPincode)
+                .billingState(shippingState)
+                .totalWeightKg(calculatedTotalWeightKg)
+                .packageLengthCm(calculatedPackageLengthCm)
+                .packageBreadthCm(calculatedPackageBreadthCm)
+                 .packageHeightCm(calculatedPackageHeightCm)
+                .items(itemDtos)
+                .build();
+    }
+
+    /**
+     * Maps a single StorefrontOrderItem to an OrderDetailsDto.OrderItemDto.
+     *
+     * @param storefrontOrderItem The domain item to map.
+     * @return The DTO item representation.
+     */
+    private OrderDetailsDto.OrderItemDto mapStorefrontOrderItemToOrderItemDto(StorefrontOrderItem storefrontOrderItem) {
+        // HSN Code is not directly present in StorefrontOrderItem.
+        // You would typically get this from a product catalog service or store it denormalized.
+        // For now, using a placeholder. You MUST replace this.
+        Integer hsnCode = 123456; // Placeholder: Replace with actual logic (e.g., lookup by productId)
+
+        log.trace("Mapping StorefrontOrderItem {} (SKU: {})", storefrontOrderItem.getProductName(), storefrontOrderItem.getSku());
+        return OrderDetailsDto.OrderItemDto.builder()
+                .name(storefrontOrderItem.getProductName())
+                .sku(storefrontOrderItem.getSku())
+                .quantity(storefrontOrderItem.getQuantity())
+                .unitPrice(storefrontOrderItem.getMrpPerItem()) // Using MRP per item
+                .hsnCode(hsnCode)
+                .build();
+    }
+
+    /**
+     * Placeholder method to determine payment method.
+     * You would replace this with actual logic based on your payment integration.
+     */
+    private String determinePaymentMethod(String paymentId) {
+        // Example: If paymentId is "COD", return "COD", otherwise "Prepaid"
+        if ("COD_IDENTIFIER".equals(paymentId)) { // Replace "COD_IDENTIFIER" with your actual COD payment ID or mechanism
+            return "COD";
+        }
+        return "Prepaid";
+    }
+
+    /**
+     * Placeholder method to calculate total weight.
+     * You'll need to fetch product weight from a product catalog or include it in StorefrontOrderItem.
+     */
+    private Double calculateTotalWeight(List<StorefrontOrderItem> items) {
+        if (items == null || items.isEmpty()) {
+            return 0.0;
+        }
+        // Example: Assuming each item has a default weight of 0.1 kg if not specified
+        // In a real scenario, you'd fetch product-specific weights.
+        return items.stream()
+                .mapToDouble(item -> item.getQuantity() * 0.1) // 0.1 kg per unit as a placeholder
+                .sum();
+    }
+
+    public List<StorefrontProduct> productByIds(String organizationId, List<String> productIds) {
+        return productIds.stream()
+                .map(id -> storefrontProductRepository.findById(organizationId, id))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toList());
+    }
+
+    // You would likely have a similar method for dimensions if they were item-specific
+    // private Double calculateTotalLength(List<StorefrontOrderItem> items) { ... }
+
+
+
 
     /*public StorefrontProduct updateProduct(
             String orgId, String branchId, String productId, // branchId is currently unused
@@ -1200,6 +1375,7 @@ public class StorefrontService {
         }
     }*/
 }
+
 
 
 
