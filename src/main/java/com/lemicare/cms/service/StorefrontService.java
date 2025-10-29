@@ -252,7 +252,7 @@ public class StorefrontService {
         // Step B & C: (Internal API Call) Call the inventory-service via Feign.
         // ===================================================================
         // The Feign client will automatically handle authentication.
-        // MedicineStockResponse inventoryData = inventoryServiceClient.getMedicineDetails(productId);
+         MedicineStockResponse inventoryData = inventoryServiceClient.getMedicineDetails(productId);
 
         // Also fetch the category name for display
         String categoryName = storefrontProduct.getCategoryName() != null ? storefrontProduct.getCategoryName() : "Uncategorized";

@@ -13,10 +13,16 @@ spring:
     name: lemicare-cms
 
   # ===================================================================
+  # FILE UPLOAD CONFIGURATION (Fix for 413 Payload Too Large)
+  # ===================================================================
+  servlet:
+    multipart:
+      max-file-size: 50MB        # 🔸 Maximum file size allowed for upload
+      max-request-size: 50MB     # 🔸 Maximum total multipart/form-data request size
+
+  # ===================================================================
   # SECURITY CONFIGURATION (OAUTH2 RESOURCE SERVER)
   # ===================================================================
-  # This section configures how this service validates incoming JWTs
-  # for its secured admin endpoints (e.g., /api/admin/storefront/**).
   security:
     oauth2:
       resourceserver:
@@ -70,7 +76,6 @@ services:
     # Feign will use this to construct the full request URL.
     url: "https://lemicare-payment-service-511338430385.asia-south1.run.app" # <-- Port of your storefront-service
 
-
 # ===================================================================
 # ACTUATOR / MANAGEMENT ENDPOINTS
 # ===================================================================
@@ -84,9 +89,10 @@ management:
     health:
       show-details: when_authorized
 
+# ===================================================================
+# GOOGLE CLOUD STORAGE CONFIGURATION
+# ===================================================================
 gcp:
-  project-id: lemicareprod # IMPORTANT:
+  project-id: lemicareprod
   storage:
-    bucket-name:  my-app-bucket-cmsservice # Your GCS bucket name for product images
-
-
+    bucket-name: my-app-bucket-cmsservice  # Your GCS bucket name for product images
