@@ -29,12 +29,14 @@ spring:
         jwt:
           # This is used to validate the 'iss' (issuer) claim inside the JWT.
           # It MUST be the same value as 'app.jwt.issuer' in your auth-service.
-          issuer: "https://cosmicdoc.com"
+          issuer: "https://smartbridgein.com"
 
           # This provides the shared secret to validate the JWT's signature.
           # It MUST be the exact same 'app.jwt.secret-key' from your auth-service.
           # In production, this MUST be loaded from an environment variable.
           secret-key: "YourSuperStrongAndLongSecretKeyForHmacShaAlgorithmsAtLeast256Bits"
+
+          audience: "MS"
 
 # ===================================================================
 # OPENAPI / SWAGGER DOCUMENTATION CONFIGURATION
