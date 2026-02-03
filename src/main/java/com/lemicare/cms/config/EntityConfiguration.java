@@ -1,13 +1,7 @@
 package com.lemicare.cms.config;
 
-import com.cosmicdoc.common.repository.StorefrontCategoryRepository;
-import com.cosmicdoc.common.repository.StorefrontOrderRepository;
-import com.cosmicdoc.common.repository.StorefrontProductRepository;
-import com.cosmicdoc.common.repository.TaxProfileRepository;
-import com.cosmicdoc.common.repository.impl.StorefrontCategoryRepositoryImpl;
-import com.cosmicdoc.common.repository.impl.StorefrontOrderRepositoryImpl;
-import com.cosmicdoc.common.repository.impl.StorefrontProductRepositoryImpl;
-import com.cosmicdoc.common.repository.impl.TaxProfileRepositoryImpl;
+import com.cosmicdoc.common.repository.*;
+import com.cosmicdoc.common.repository.impl.*;
 import com.google.cloud.firestore.Firestore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,5 +28,10 @@ public class EntityConfiguration {
     @Bean
     TaxProfileRepository taxProfileRepository (Firestore firestore) {
         return new TaxProfileRepositoryImpl(firestore);
+    }
+
+    @Bean
+    BranchRepository branchRepository (Firestore firestore) {
+        return new BranchRepositoryImpl(firestore);
     }
 }

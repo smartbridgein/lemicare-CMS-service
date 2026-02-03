@@ -28,7 +28,10 @@ public class InitiateCheckoutRequest {
     // Items in Cart
     @NotEmpty(message = "Cart cannot be empty")
     @Valid // This ensures validation is applied to each item in the list
-    private List<CartItemDto> cartItems;
+    private List<SaleItemDto> cartItems;
 
     private double shippingCost;
+
+    private String gstType;
+    private int courierId;
 }

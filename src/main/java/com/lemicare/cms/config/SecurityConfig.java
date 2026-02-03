@@ -63,7 +63,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/public/**").permitAll() // Allow all public endpoints
                         .requestMatchers("/test/**").permitAll() // Allow test endpoints for Firestore testing
-                        .requestMatchers("/error").permitAll() // Allow error pages
+                        .requestMatchers("/error").permitAll()
+                        // Allow error pages
                         .anyRequest().permitAll() // For now, allow everything for debugging
                 )
 

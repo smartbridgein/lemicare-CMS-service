@@ -115,6 +115,12 @@
 		</dependency>
 
 		<dependency>
+			<groupId>com.google.cloud</groupId>
+			<artifactId>google-cloud-core</artifactId>
+			<version>2.31.0</version> <!-- Use a version compatible with your GCP client libraries, or managed by BOM -->
+		</dependency>
+
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>

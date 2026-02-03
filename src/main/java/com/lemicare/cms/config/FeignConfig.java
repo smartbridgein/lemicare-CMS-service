@@ -29,128 +29,90 @@ import java.util.Optional;
 @Configuration
 public class FeignConfig {
 
-    /**
-     * Defines the custom retry behavior for Feign clients.
-     *
-     * @return A configured Retryer instance.
-     */
+    // Define constants for custom headers
+    private static final String X_ORGANIZATION_ID_HEADER = "X-Organization-Id";
+    private static final String X_USER_ID_HEADER = "X-User-Id";
+    private static final String X_BRANCH_ID_HEADER = "X-Branch-Id";
+
     @Bean
     public Retryer feignRetryer() {
-        // This configuration will:
-        // - Start with a 100ms delay.
-        // - Wait a maximum of 1 second between retries.
-        // - Attempt a total of 3 times (1 initial call + 2 retries).
-        return new Retryer.Default(100, 1000, 3);
+        return new Retryer.Default(100, 1000, 3); // 100ms initial, max 1s, 3 attempts (1 initial + 2 retries)
     }
-
-    /**
-     * Defines the custom error decoding logic.
-     * This allows us to control which HTTP errors trigger a retry.
-     *
-     * @return A configured ErrorDecoder instance.
-     */
 
     @Bean
     public ErrorDecoder feignErrorDecoder() {
-        final ErrorDecoder defaultErrorDecoder = new ErrorDecoder.Default();
         return (methodKey, response) -> {
-            int status = response.status();
-            String reason = response.reason();
-
-            byte[] bodyBytes = new byte[0]; // Default to empty byte array
-            if (response.body() != null) {
-                try (InputStream is = response.body().asInputStream()) {
-                    bodyBytes = is.readAllBytes();
-                } catch (IOException e) {
-                    // Log this, but don't prevent decoding the error
-                    System.err.println("Error reading Feign response body: " + e.getMessage());
+            String body = "";
+            try {
+                if (response.body() != null) {
+                    // It's safer to read the body as a string for logging,
+                    // but the default errorStatus also reads it.
+                    // If you need the body for custom exception types, keep this.
+                    body = Util.toString(response.body().asReader());
                 }
+            } catch (Exception ignored) {
+                // Ignore errors during body reading for logging, just log without body
             }
 
-            if (status == 400) {
-                // Return FeignException.BadRequest with potentially empty bodyBytes
-                return new FeignException.BadRequest(reason, response.request(), bodyBytes, response.headers());
-            } else if (status == 401) {
-                // Return FeignException.Unauthorized with potentially empty bodyBytes
-                return new FeignException.Unauthorized(reason, response.request(), bodyBytes, response.headers());
-            } else if (status == 404) {
-                // Return FeignException.NotFound with potentially empty bodyBytes
-                return new FeignException.NotFound(reason, response.request(), bodyBytes, response.headers());
-            }
-            // For any other status, use the default error decoder
-            return defaultErrorDecoder.decode(methodKey, response);
+            System.err.println("\n=== FEIGN ERROR ===");
+            System.err.println("URL: " + response.request().url());
+            System.err.println("Method Key: " + methodKey);
+            System.err.println("Status: " + response.status());
+            System.err.println("Reason: " + response.reason());
+            System.err.println("Headers: " + response.headers());
+            System.err.println("Body: " + body); // Include body in error log
+            System.err.println("===================\n");
+
+            // Use FeignException.errorStatus to return the appropriate FeignException subclass
+            // e.g., FeignException.BadRequest for 400, FeignException.Unauthorized for 401, etc.
+            // This is generally sufficient and allows downstream services to catch specific exceptions.
+            return FeignException.errorStatus(methodKey, response);
         };
     }
 
+    /**
+     * Consolidate all header propagation into a single interceptor.
+     * This interceptor will propagate:
+     * 1. The original Authorization (JWT) header.
+     * 2. Custom tenant context headers (OrgId, UserId, BranchId) from the CMS's TenantContext.
+     */
     @Bean
-    public RequestInterceptor tenantInterceptor() {
+    public RequestInterceptor feignClientInterceptor() {
         return new RequestInterceptor() {
             @Override
             public void apply(RequestTemplate template) {
-                String orgId = TenantContext.getOrganizationId();
-                if (orgId != null) {
-                    template.header("X-Organization-Id", orgId);
-                }
-            }
-        };
-    }
-
-    @Bean
-    public RequestInterceptor feignRequestInterceptor() {
-        return new RequestInterceptor() {
-            @Override
-            public void apply(RequestTemplate template) {
-                // 1. Propagate Authorization header from the SecurityContext (if present)
-                // This is the most reliable way to get the JWT that was validated by the CMS's security.
-                // Note: SecurityContextHolder.getContext() might be null in async scenarios.
-                // For WebFlux/Reactive, you'd use ReactiveSecurityContextHolder.getContext().
-                // Assuming your CMS is Servlet-based (from "nio-8086-exec-1" in logs)
+                // 1. Propagate Authorization header (JWT)
+                // Get the JWT from the SecurityContext, which holds the authenticated user's details
                 Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
                 if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
                     template.header(HttpHeaders.AUTHORIZATION, "Bearer " + jwt.getTokenValue());
-                    // Log to verify
-                    // System.out.println("CMS Feign: Propagating JWT from SecurityContext for internal call.");
+                    // Debugging line
+                    // System.out.println("CMS Feign: Propagating Authorization header (JWT) for internal call.");
                 } else {
-                    // Fallback: If not found in SecurityContext, try RequestContextHolder
-                    // This might happen if the SecurityContext is not fully propagated or in specific contexts.
-                    ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-                    if (attributes != null) {
-                        String authorizationHeader = attributes.getRequest().getHeader(HttpHeaders.AUTHORIZATION);
-                        if (authorizationHeader != null && !authorizationHeader.isEmpty()) {
-                            template.header(HttpHeaders.AUTHORIZATION, authorizationHeader);
-                            // System.out.println("CMS Feign: Propagating Authorization header from incoming request for internal call.");
-                        }
-                    }
+                    // Log a warning if no JWT is found, unless it's an unauthenticated internal call
+                    // System.out.println("CMS Feign: No JWT found in SecurityContext for outgoing request.");
                 }
 
+                // 2. Propagate custom tenant/user context headers from the CMS's TenantContext
+                // The CMS's TenantFilter should have already populated these from the incoming JWT.
+                String orgId = TenantContext.getOrganizationId();
+                String userId = TenantContext.getUserId();
+                String branchId = TenantContext.getBranchId();
 
-                // 2. Propagate custom tenant headers (X-Org-ID, X-User-ID, X-Branch-ID)
-                // Assuming these are also available in the incoming request headers or derived from the JWT
-                ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-                if (attributes != null) {
-                    // X-Org-ID
-                    Optional.ofNullable(attributes.getRequest().getHeader("X-Org-ID"))
-                            .ifPresent(orgId -> template.header("X-Org-ID", orgId));
-
-                    // X-User-ID
-                    Optional.ofNullable(attributes.getRequest().getHeader("X-User-ID"))
-                            .ifPresent(userId -> template.header("X-User-ID", userId));
-
-                    // X-Branch-ID
-                    Optional.ofNullable(attributes.getRequest().getHeader("X-Branch-ID"))
-                            .ifPresent(branchId -> template.header("X-Branch-ID", branchId));
-
-                    // System.out.println("CMS Feign: Propagating custom headers for internal call.");
-                } else {
-                    // Fallback for async contexts where RequestContextHolder might be null.
-                    // If you rely heavily on this in async, you'll need to use Reactor's Context propagation
-                    // or a custom ThreadLocal (carefully).
-                    // For now, this fallback assumes SecurityContextHolder is still the primary source for JWT.
+                if (orgId != null) {
+                    template.header(X_ORGANIZATION_ID_HEADER, orgId);
                 }
+                if (userId != null) {
+                    template.header(X_USER_ID_HEADER, userId);
+                }
+                if (branchId != null) {
+                    template.header(X_BRANCH_ID_HEADER, branchId);
+                }
+                // Debugging line
+                // System.out.printf("CMS Feign: Propagating Tenant Headers - Org: %s, User: %s, Branch: %s%n", orgId, userId, branchId);
             }
         };
     }
-
 }
 
 

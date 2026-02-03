@@ -181,12 +181,12 @@ public class AdminContentController {
         return ResponseEntity.ok(storefrontService.updateCategory(orgId, categoryId, request));
     }*/
 
-   /* @DeleteMapping("/categories/{categoryId}")
-    public ResponseEntity<Void> deleteCategory(@PathVariable String categoryId) {
+    @DeleteMapping("/product/{productId}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable String productId) {
         String orgId = SecurityUtils.getOrganizationId();
-        storefrontService.deleteCategory(orgId, categoryId);
+        storefrontService.deleteProduct(orgId, productId);
         return ResponseEntity.noContent().build();
-    }*/
+    }
 
 }
 

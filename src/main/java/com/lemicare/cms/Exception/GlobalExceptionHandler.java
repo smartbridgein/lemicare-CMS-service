@@ -5,6 +5,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @ControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -22,5 +25,16 @@ public class GlobalExceptionHandler {
 
         // Return a user-friendly message, hiding the internal details.
         return new ResponseEntity<>(ex.getMessage(), HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @ExceptionHandler(InventoryClientException.class)
+    public ResponseEntity<Object> handleInventoryError(InventoryClientException ex) {
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("status", 409);
+        body.put("error", "Conflict");
+        body.put("message", ex.getMessage()); // <-- now contains actual error text
+
+        return ResponseEntity.status(409).body(body);
     }
 }

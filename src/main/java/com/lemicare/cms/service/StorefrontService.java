@@ -2,10 +2,7 @@ package com.lemicare.cms.service;
 
 
 import com.cosmicdoc.common.model.*;
-import com.cosmicdoc.common.repository.StorefrontCategoryRepository;
-import com.cosmicdoc.common.repository.StorefrontOrderRepository;
-import com.cosmicdoc.common.repository.StorefrontProductRepository;
-import com.cosmicdoc.common.repository.TaxProfileRepository;
+import com.cosmicdoc.common.repository.*;
 import com.cosmicdoc.common.util.FirestorePage;
 import com.cosmicdoc.common.util.IdGenerator;
 import com.google.api.client.util.Strings;
@@ -14,11 +11,17 @@ import com.google.cloud.Policy;
 import com.google.cloud.Role;
 import com.google.cloud.Timestamp;
 import com.google.cloud.storage.*;
+import com.lemicare.cms.Exception.InventoryClientException;
 import com.lemicare.cms.Exception.ResourceNotFoundException;
 import com.lemicare.cms.dto.request.*;
 import com.lemicare.cms.dto.response.*;
+import com.lemicare.cms.integration.client.InventoryService;
 import com.lemicare.cms.integration.client.InventoryServiceClient;
 import com.lemicare.cms.integration.client.PaymentServiceClient;
+import feign.FeignException;
+import io.swagger.v3.oas.models.security.SecurityScheme;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import lombok.RequiredArgsConstructor;
 import net.coobird.thumbnailator.Thumbnails;
 import org.slf4j.Logger;
@@ -55,10 +58,12 @@ public class StorefrontService {
     private final StorefrontCategoryRepository storefrontCategoryRepository;
     private final StorefrontOrderRepository storefrontOrderRepository;
     private final InventoryServiceClient inventoryServiceClient;
+
     private final Storage storage; // Google Cloud Storage client
     private final PaymentServiceClient paymentServiceClient;
     private final TaxProfileRepository taxProfileRepository;
-
+    private final BranchRepository branchRepository;
+    private final InventoryService inventoryService;
     private static final Map<String, String> IMAGE_FORMAT_MAP = new HashMap<>();
 
     static {
@@ -650,119 +655,78 @@ public class StorefrontService {
     }
 
     public StorefrontOrder createPendingOrder(String orgId, InitiateCheckoutRequest request)
-            throws ExecutionException, InterruptedException {
+             {
+       try {
+           List<Branch> branches = branchRepository.findAllByOrganizationId(orgId);
 
-        // Generate a unique order ID
-        String orderId = IdGenerator.newId("ORD");
-
-        List<StorefrontOrderItem> orderItems = new ArrayList<>();
-        double grandTotal = 0.0; // We'll calculate this now
-
-        for (CartItemDto cartItem : request.getCartItems()) {
-            // --- IMPORTANT: Real-world Scenario ---
-            // In a production system, you MUST fetch the actual product price, stock,
-            // and tax information from your inventory/CMS service here using cartItem.productId.
-            // DO NOT trust the price (mrpPerItem) and discount sent by the frontend directly.
-            // This prevents price manipulation.
-            // For this example, we'll use the DTO values for simplicity, but mark this
-            // as a critical point for refinement.
-
-            // Example:
-            // Product realProduct = productLookupService.getProductDetails(orgId, cartItem.getProductId());
-            // if (realProduct == null || realProduct.getStockLevel() < cartItem.getQuantity()) {
-            //     throw new InsufficientStockException("Not enough stock for " + cartItem.getProductName());
-            // }
-            // double verifiedMrp = realProduct.getMrp();
-            // double verifiedDiscount = calculateDiscount(realProduct, cartItem.getQuantity());
-            // TaxDetails verifiedTax = calculateTax(realProduct, orgId, branchId); // Needs branchId
-
-            // For now, using DTO values:
-            double mrpPerItem = cartItem.getMrpPerItem();
-            double discountPercentage = cartItem.getDiscountPercentage();
-            int quantity = cartItem.getQuantity();
-
-            double lineItemGrossMrp = mrpPerItem * quantity;
-            double lineItemDiscountAmount = lineItemGrossMrp * (discountPercentage / 100.0);
-            double lineItemNetAfterDiscount = lineItemGrossMrp - lineItemDiscountAmount;
-
-            // --- Tax Calculation (Simplified for example) ---
-            // In a real system, tax calculation would be complex, involving:
-            // 1. Product's tax profile
-            // 2. Customer's shipping address (state/country)
-            // 3. Organization's tax settings
-            // For now, let's assume a flat 18% GST (replace with actual logic)
-
-            Optional<StorefrontProduct> storefrontProduct= storefrontProductRepository.findById(orgId, cartItem.getProductId());
-            String taxProfileId = storefrontProduct.get().getTaxProfileId();
-
-            Optional<TaxProfile> taxProfile = taxProfileRepository.findById(orgId,taxProfileId);
-            BigDecimal taxRate = BigDecimal.valueOf(taxProfile.get().getTotalRate()).divide(new BigDecimal(100));
-            double taxRateApplied = 0.0; // Example
-            double lineItemTaxableAmount = lineItemNetAfterDiscount; // Assuming discount before tax
-            double lineItemTaxAmount = lineItemTaxableAmount * (taxRateApplied / 100.0);
-            double lineItemTotalAmount = lineItemTaxableAmount + lineItemTaxAmount;
+           Sale partialSale = Sale.builder()
+                   .saleType("E-COMMERCE")
+                   .organizationId(orgId)
+                   .branchId(branches.get(0).getBranchId())
+                   .gstType(parseGstType(request.getGstType()))
+                   .build();
 
 
-            // Example tax components (replace with actual breakdown)
-            List<TaxComponent> taxComponents = new ArrayList<>();
-            // taxComponents.add(TaxComponent.builder().name("CGST").rate(9.0).lineItemGrossMrp(lineItemTaxAmount / 2).build());
-            // taxComponents.add(TaxComponent.builder().name("SGST").rate(9.0).amount(lineItemTaxAmount / 2).build());
+           CreateSaleRequest createSaleRequest = CreateSaleRequest.builder()
+                   .orgId(orgId)
+                   .branchId(branches.get(0).getBranchId())
+                   .sale(partialSale)
+                   .saleItemDtoList(request.getCartItems())
+                   .build();
+           Sale sale = inventoryService.createSale(createSaleRequest);
+           // Generate a unique order ID
+           String orderId = IdGenerator.newId("ORD");
+
+           List<StorefrontOrderItem> orderItems = new ArrayList<>();
+           double grandTotal = 0.0; // We'll calculate this now
 
 
-            StorefrontOrderItem orderItem = StorefrontOrderItem.builder()
-                    .productId(cartItem.getProductId())
-                    .productName(cartItem.getProductName())
-                    .sku(cartItem.getSku())
-                    .quantity(quantity)
-                    .mrpPerItem(mrpPerItem)
-                    .discountPercentage(discountPercentage)
-                    .lineItemGrossMrp(lineItemGrossMrp)
-                    .lineItemDiscountAmount(lineItemDiscountAmount)
-                    .lineItemNetAfterDiscount(lineItemNetAfterDiscount)
-                    .lineItemTaxableAmount(lineItemTaxableAmount)
-                    .lineItemTaxAmount(lineItemTaxAmount)
-                    .lineItemTotalAmount(lineItemTotalAmount)
-                    // Tax Details Snapshot
-                    // .gstType(verifiedTax.getGstType()) // Use actual tax type from lookup
-                    // .taxProfileId(verifiedTax.getTaxProfileId())
-                    //.taxProfileId(taxProfileId)
-                    .taxRateApplied(taxRateApplied) // Use actual rate
-                    //.taxComponents(taxComponents) // Use actual components
-                    .build();
-            orderItems.add(orderItem);
+           grandTotal = sale.getGrandTotal() + request.getShippingCost();
 
-            grandTotal += lineItemTotalAmount;
-        }
-        grandTotal += request.getShippingCost();
+           // --- Determine Branch ---
+           // How do you determine the branchId?
+           // 1. Based on customer's shipping address (find nearest branch)?
+           // 2. Pre-selected by customer on frontend?
+           // 3. Default branch for the organization?
+           // For now, we'll need to explicitly get it or assume it's passed or derived.
+           // Let's assume it can be derived or picked from a default.
+           //  String branchId = determineFulfillingBranch(orgId, request.getShippingAddress()); // Implement this logic
 
-        // --- Determine Branch ---
-        // How do you determine the branchId?
-        // 1. Based on customer's shipping address (find nearest branch)?
-        // 2. Pre-selected by customer on frontend?
-        // 3. Default branch for the organization?
-        // For now, we'll need to explicitly get it or assume it's passed or derived.
-        // Let's assume it can be derived or picked from a default.
-      //  String branchId = determineFulfillingBranch(orgId, request.getShippingAddress()); // Implement this logic
+           StorefrontOrder order = StorefrontOrder.builder()
+                   .orderId(orderId)
+                   .organizationId(orgId)
+                   // .branchId(branchId) // CRITICAL: This needs to be correctly determined
+                   .patientId(request.getCustomerId())
+                   .customerInfo(request.getCustomerInfo())
+                   .shippingAddress(request.getShippingAddress())
+                   .grandTotal(grandTotal)
+                   .status("PENDING_PAYMENT") // Initial status
+                   .createdAt(Timestamp.now())
+                   .items(sale.getItems())
+                   .build();
 
-        StorefrontOrder order = StorefrontOrder.builder()
-                .orderId(orderId)
-                .organizationId(orgId)
-               // .branchId(branchId) // CRITICAL: This needs to be correctly determined
-                .patientId(request.getCustomerId())
-                .customerInfo(request.getCustomerInfo())
-                 .shippingAddress(request.getShippingAddress())
-                .grandTotal(grandTotal)
-                .status("PENDING_PAYMENT") // Initial status
-                .createdAt(Timestamp.now())
-                .items(orderItems)
-                .build();
+           log.info("Saving new StorefrontOrder with ID: {} for Org: {}", orderId, orgId);
+           StorefrontOrder savedOrder = storefrontOrderRepository.save(order);
+           log.info("Successfully created pending order: {}", savedOrder.getOrderId());
 
-        log.info("Saving new StorefrontOrder with ID: {} for Org: {}", orderId, orgId);
-        StorefrontOrder savedOrder = storefrontOrderRepository.save(order);
-        log.info("Successfully created pending order: {}", savedOrder.getOrderId());
-
-        return savedOrder;
+           return savedOrder;
+       } catch (FeignException e) {
+           String actualMessage = e.contentUTF8();
+           throw new InventoryClientException(actualMessage);
+       }
     }
+
+    private GstType parseGstType(String value) {
+        if (value == null || value.isBlank()) {
+            return GstType.NON_GST;
+        }
+        try {
+            return GstType.valueOf(value.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            return GstType.NON_GST; // default fallback
+        }
+    }
+
 
     private String determineFulfillingBranch(String orgId, Map<String, String> shippingAddress) {
         // Implement logic here to determine which branch should fulfill the order.
@@ -890,18 +854,18 @@ public class StorefrontService {
      * @param storefrontOrderItem The domain item to map.
      * @return The DTO item representation.
      */
-    private OrderDetailsDto.OrderItemDto mapStorefrontOrderItemToOrderItemDto(StorefrontOrderItem storefrontOrderItem) {
+    private OrderDetailsDto.OrderItemDto mapStorefrontOrderItemToOrderItemDto(SaleItem storefrontOrderItem) {
         // HSN Code is not directly present in StorefrontOrderItem.
         // You would typically get this from a product catalog service or store it denormalized.
         // For now, using a placeholder. You MUST replace this.
         Integer hsnCode = 123456; // Placeholder: Replace with actual logic (e.g., lookup by productId)
 
-        log.trace("Mapping StorefrontOrderItem {} (SKU: {})", storefrontOrderItem.getProductName(), storefrontOrderItem.getSku());
+       // log.trace("Mapping StorefrontOrderItem {} ()", storefrontOrderItem.getProductName());
         return OrderDetailsDto.OrderItemDto.builder()
                 .name(storefrontOrderItem.getProductName())
-                .sku(storefrontOrderItem.getSku())
+               // .sku(storefrontOrderItem.getSku())
                 .quantity(storefrontOrderItem.getQuantity())
-                .unitPrice(storefrontOrderItem.getMrpPerItem()) // Using MRP per item
+               // .unitPrice(storefrontOrderItem.getMrp()) // Using MRP per item
                 .hsnCode(hsnCode)
                 .build();
     }
@@ -922,7 +886,7 @@ public class StorefrontService {
      * Placeholder method to calculate total weight.
      * You'll need to fetch product weight from a product catalog or include it in StorefrontOrderItem.
      */
-    private Double calculateTotalWeight(List<StorefrontOrderItem> items) {
+    private Double calculateTotalWeight(List<SaleItem> items) {
         if (items == null || items.isEmpty()) {
             return 0.0;
         }
@@ -939,6 +903,11 @@ public class StorefrontService {
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .collect(Collectors.toList());
+    }
+
+    public void deleteProduct(String orgId, String productId) {
+        storefrontProductRepository.deleteByProductId(orgId, productId);
+        log.info("delete StorefrontOrder with ID: {} for Org: {}", productId, orgId);
     }
 
     // You would likely have a similar method for dimensions if they were item-specific
