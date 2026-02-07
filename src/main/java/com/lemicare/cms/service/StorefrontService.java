@@ -673,6 +673,15 @@ public class StorefrontService {
                    .sale(partialSale)
                    .saleItemDtoList(request.getCartItems())
                    .build();
+
+           log.info(
+                   "Creating sale request | orgId={} | customerId={} | cartItemCount={} | gstType={} | courierId={}",
+                   orgId,
+                   createSaleRequest.getOrgId(),
+                   request.getCartItems().size(),
+                   request.getGstType(),
+                   request.getCourierId()
+           );
            Sale sale = inventoryService.createSale(createSaleRequest);
            // Generate a unique order ID
            String orderId = IdGenerator.newId("ORD");
