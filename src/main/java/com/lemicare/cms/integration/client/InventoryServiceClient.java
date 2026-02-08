@@ -1,14 +1,10 @@
 package com.lemicare.cms.integration.client;
 
-import com.cosmicdoc.common.model.Medicine;
-import com.lemicare.cms.Exception.ResourceNotFoundException;
-import com.lemicare.cms.Exception.ServiceCommunicationException;
-import com.lemicare.cms.dto.request.MedicineMasterData;
+import com.lemicare.cms.exception.ResourceNotFoundException;
+import com.lemicare.cms.exception.ServiceCommunicationException;
 import com.lemicare.cms.dto.request.MedicineStockData;
 import com.lemicare.cms.dto.request.MedicineStockRequest;
-import com.lemicare.cms.dto.response.MedicineStockDetailResponse;
 import com.lemicare.cms.dto.response.MedicineStockResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -16,7 +12,6 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 

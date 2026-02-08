@@ -2,8 +2,11 @@ package com.lemicare.cms.config;
 
 
 import com.lemicare.cms.context.TenantContext;
+import com.lemicare.cms.exception.InventoryClientException;
+import com.lemicare.cms.exception.ServiceCommunicationException;
 import feign.*;
 import feign.codec.ErrorDecoder;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHeaders;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,6 +30,7 @@ import java.util.Optional;
  * all outgoing inter-service communication.
  */
 @Configuration
+@Slf4j
 public class FeignConfig {
 
     // Define constants for custom headers
@@ -42,30 +46,34 @@ public class FeignConfig {
     @Bean
     public ErrorDecoder feignErrorDecoder() {
         return (methodKey, response) -> {
-            String body = "";
+            String body = null;
+
             try {
                 if (response.body() != null) {
-                    // It's safer to read the body as a string for logging,
-                    // but the default errorStatus also reads it.
-                    // If you need the body for custom exception types, keep this.
                     body = Util.toString(response.body().asReader());
                 }
-            } catch (Exception ignored) {
-                // Ignore errors during body reading for logging, just log without body
+            } catch (IOException ignored) {}
+
+            // Log (already good)
+            log.error("Feign error | method={} | status={} | body={}",
+                    methodKey, response.status(), body);
+
+            // INVENTORY CONFLICT
+            if (response.status() == 409) {
+                return new InventoryClientException(
+                        body != null && !body.isBlank()
+                                ? body
+                                : "Insufficient stock"
+                );
             }
 
-            System.err.println("\n=== FEIGN ERROR ===");
-            System.err.println("URL: " + response.request().url());
-            System.err.println("Method Key: " + methodKey);
-            System.err.println("Status: " + response.status());
-            System.err.println("Reason: " + response.reason());
-            System.err.println("Headers: " + response.headers());
-            System.err.println("Body: " + body); // Include body in error log
-            System.err.println("===================\n");
+            // Other downstream failures
+            if (response.status() >= 500) {
+                return new ServiceCommunicationException(
+                        "Downstream service error: " + body
+                );
+            }
 
-            // Use FeignException.errorStatus to return the appropriate FeignException subclass
-            // e.g., FeignException.BadRequest for 400, FeignException.Unauthorized for 401, etc.
-            // This is generally sufficient and allows downstream services to catch specific exceptions.
             return FeignException.errorStatus(methodKey, response);
         };
     }

@@ -1,0 +1,16 @@
+server:
+  port: 8086
+
+security:
+  oauth2:
+    resourceserver:
+      jwt:
+        issuer: "https://smartbridgein.com"
+        secret-key: "YourSuperStrongAndLongSecretKeyForHmacShaAlgorithmsAtLeast256Bits"
+        audience: "MS"
+
+services:
+  inventory:
+    url: http://localhost:8082
+  payment-service:
+    url: http://localhost:8084

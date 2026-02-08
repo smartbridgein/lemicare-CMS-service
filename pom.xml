@@ -176,19 +176,12 @@
 							<jvmFlag>-XX:InitialRAMPercentage=50</jvmFlag>
 							<jvmFlag>-XX:MaxRAMPercentage=70</jvmFlag>
 							<jvmFlag>-Djava.security.egd=file:/dev/./urandom</jvmFlag>
-							<jvmFlag>-Dserver.port=8086</jvmFlag>
-							<jvmFlag>-Dspring.profiles.active=cloud</jvmFlag>
 						</jvmFlags>
-						<ports>
-							<port>8086</port>
-						</ports>
-						<environment>
-							<SPRING_PROFILES_ACTIVE>cloud</SPRING_PROFILES_ACTIVE>
-							<PORT>8086</PORT>
-						</environment>
 					</container>
 				</configuration>
 			</plugin>
+
+
 		</plugins>
 	</build>
 

@@ -1,18 +1,13 @@
 package com.lemicare.cms.controller;
 
-import com.cosmicdoc.common.model.DeliveryOrder;
 import com.cosmicdoc.common.model.StorefrontCategory;
 import com.cosmicdoc.common.model.StorefrontOrder;
 import com.cosmicdoc.common.model.StorefrontProduct;
-import com.lemicare.cms.Exception.ResourceNotFoundException;
-import com.lemicare.cms.context.TenantContext;
+import com.lemicare.cms.exception.ResourceNotFoundException;
 import com.lemicare.cms.dto.request.CreateOrderRequest;
 import com.lemicare.cms.dto.request.InitiateCheckoutRequest;
 import com.lemicare.cms.dto.response.CreateOrderResponse;
-import com.lemicare.cms.dto.response.PaginatedResponse;
 import com.lemicare.cms.dto.response.PublicProductDetailResponse;
-import com.lemicare.cms.dto.response.PublicProductListResponse;
-import com.lemicare.cms.security.SecurityUtils;
 import com.lemicare.cms.service.StorefrontService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -28,9 +23,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
 
 /**
  * Controller for handling all PUBLIC-FACING API requests for the e-commerce storefront.

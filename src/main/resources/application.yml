@@ -1,11 +1,4 @@
 # ===================================================================
-# SERVER CONFIGURATION
-# ===================================================================
-  # A unique port for the storefront-service to avoid conflicts.
-  server:
-    port: 8086
-
-# ===================================================================
 # CORE SPRING APPLICATION CONFIGURATION
 # ===================================================================
 spring:
@@ -62,23 +55,7 @@ app:
     # Path to the service account key within the classpath.
     service-account-path: "google-services.json"
 
-# ===================================================================
-# DOWNSTREAM SERVICE LOCATIONS
-# ===================================================================
-# Centralized configuration for the URLs of other microservices this
-# service needs to communicate with.
-services:
-  inventory:
-    # We point to the API Gateway's address, as it's the single entry point.
-    # The RestTemplate client will use this base URL.
-    url: "https://lemicare-inventory-service-511338430385.asia-south1.run.app"
-    #url: "http://localhost:8082"
 
-  payment-service:
-    # The base URL of the storefront-service.
-    # Feign will use this to construct the full request URL.
-    url: "https://lemicare-payment-service-511338430385.asia-south1.run.app" # <-- Port of your storefront-service
-    #url: "http://localhost:8084"
 # ===================================================================
 # ACTUATOR / MANAGEMENT ENDPOINTS
 # ===================================================================

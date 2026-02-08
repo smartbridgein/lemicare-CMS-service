@@ -1,0 +1,16 @@
+server:
+  port: ${PORT}
+
+security:
+  oauth2:
+    resourceserver:
+      jwt:
+        issuer: ${JWT_ISSUER}
+        secret-key: ${JWT_SECRET_KEY}
+        audience: ${JWT_AUDIENCE}
+
+services:
+  inventory:
+    url: https://lemicare-inventory-service-511338430385.asia-south1.run.app
+  payment-service:
+    url: https://lemicare-payment-service-511338430385.asia-south1.run.app

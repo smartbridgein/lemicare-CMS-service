@@ -1,8 +1,5 @@
 package com.lemicare.cms.exception;
 
-import com.lemicare.cms.Exception.InventoryClientException;
-import com.lemicare.cms.Exception.ResourceNotFoundException;
-import com.lemicare.cms.Exception.ServiceCommunicationException;
 import com.lemicare.cms.dto.response.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
