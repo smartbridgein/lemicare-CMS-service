@@ -25,7 +25,7 @@ import java.io.InputStream;
  * requiring a live Firebase connection or a 'google-services.json' file.
  */
 @Configuration
-@Profile("!local") // CRITICAL: This bean will not be created if the profile is 'local'.
+@Profile("!test") // CRITICAL: This bean will not be created if the profile is 'local'.
 public class FirebaseConfig {
 
     // Injects the path to the service account key from application.yml
@@ -45,8 +45,8 @@ public class FirebaseConfig {
      * @return The initialized FirebaseApp instance.
      * @throws IOException if the credentials file cannot be found or read.
      */
-    @Bean
-    public FirebaseApp firebaseApp() throws IOException {
+   // @Bean
+   /* public FirebaseApp firebaseApp() throws IOException {
         if (FirebaseApp.getApps().isEmpty()) {
             // Load the service account credentials from the project's classpath (src/main/resources)
             InputStream serviceAccount = new ClassPathResource(serviceAccountPath).getInputStream();
@@ -61,6 +61,35 @@ public class FirebaseConfig {
             return FirebaseApp.getInstance();
         }
     }
+*/
+
+
+    @Bean
+    public FirebaseApp firebaseApp() throws IOException {
+
+        if (!FirebaseApp.getApps().isEmpty()) {
+            return FirebaseApp.getInstance();
+        }
+
+        FirebaseOptions options;
+
+        if (serviceAccountPath != null && !serviceAccountPath.isBlank()) {
+            try (InputStream in = new ClassPathResource(serviceAccountPath).getInputStream()) {
+                options = FirebaseOptions.builder()
+                        .setCredentials(GoogleCredentials.fromStream(in))
+                        .build();
+            }
+        } else {
+            // Cloud Run / GKE / GCE
+            options = FirebaseOptions.builder()
+                    .setCredentials(GoogleCredentials.getApplicationDefault())
+                    .build();
+        }
+
+        return FirebaseApp.initializeApp(options);
+    }
+
+
 
     /**
      * Provides the primary Firestore database instance as a Spring Bean.

@@ -27,6 +27,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
@@ -752,11 +754,139 @@ public class StorefrontService {
         return product;
     }
 
-    public OrderDetailsDto getOrderDetails(String orgId, String orderId) {
+   /* public OrderDetailsDto getOrderDetails(String orgId, String orderId) {
         StorefrontOrder order = storefrontOrderRepository.findById(orgId,orderId)
          .orElseThrow(() -> new ResourceNotFoundException("Storefront order with ID " + orderId + " not found"));
         return mapToOrderDetailsDto(order);
+    }*/
+
+    public OrderDetailsDto getOrderDetails(String orgId, String orderId) {
+
+        // 1️ Fetch order
+        StorefrontOrder order = storefrontOrderRepository
+                .findById(orgId, orderId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Storefront order with ID " + orderId + " not found"
+                        )
+                );
+
+        List<SaleItem> items =
+                Optional.ofNullable(order.getItems()).orElse(List.of());
+
+        // 2️ Extract productIds
+        List<String> productIds = items.stream()
+                .map(SaleItem::getMedicineId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        // 3️ Fetch StorefrontProducts (CMS collection)
+        Map<String, StorefrontProduct> productMap =
+                storefrontProductRepository
+                        .findAllByOrganizationIdAndProductIdIn(orgId, productIds)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                StorefrontProduct::getProductId,
+                                p -> p
+                        ));
+
+        // 4️ Calculate dynamic package details
+        PackageDetails packageDetails =
+                calculatePackageDetails(items, productMap);
+
+        // 5️ Map to DTO
+        return mapToOrderDetailsDto(order, packageDetails);
     }
+
+    private PackageDetails calculatePackageDetails(
+            List<SaleItem> items,
+            Map<String, StorefrontProduct> productMap) {
+
+        if (items == null || items.isEmpty()) {
+            return new PackageDetails(
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO
+            );
+        }
+
+        BigDecimal totalWeight = BigDecimal.ZERO;
+        BigDecimal maxLength = BigDecimal.ZERO;
+        BigDecimal maxWidth = BigDecimal.ZERO;
+        BigDecimal totalHeight = BigDecimal.ZERO;
+
+        for (SaleItem item : items) {
+
+            StorefrontProduct product =
+                    productMap.get(item.getMedicineId());
+
+            if (product == null) continue;
+
+            BigDecimal quantity =
+                    BigDecimal.valueOf(item.getQuantity());
+
+            // -------- WEIGHT --------
+            BigDecimal weight = BigDecimal.ZERO;
+
+            if (product.getWeight() != null &&
+                    product.getWeight().getValue() != null) {
+
+                weight = product.getWeight().getValue();
+            }
+
+            totalWeight = totalWeight.add(
+                    weight.multiply(quantity)
+            );
+
+            // -------- DIMENSIONS --------
+            if (product.getDimensions() != null) {
+
+                PhysicalDimensions dim =
+                        product.getDimensions();
+
+                BigDecimal length =
+                        dim.getLength() != null
+                                ? dim.getLength()
+                                : BigDecimal.ZERO;
+
+                BigDecimal width =
+                        dim.getWidth() != null
+                                ? dim.getWidth()
+                                : BigDecimal.ZERO;
+
+                BigDecimal height =
+                        dim.getHeight() != null
+                                ? dim.getHeight()
+                                : BigDecimal.ZERO;
+
+                maxLength = maxLength.max(length);
+                maxWidth = maxWidth.max(width);
+
+                totalHeight = totalHeight.add(
+                        height.multiply(quantity)
+                );
+            }
+        }
+
+        return new PackageDetails(
+                scale(totalWeight),
+                scale(maxLength),
+                scale(maxWidth),
+                scale(totalHeight)
+        );
+
+
+    }
+
+
+    private BigDecimal scale(BigDecimal value) {
+        if (value == null) return BigDecimal.ZERO;
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+
 
     /**
      * Maps a StorefrontOrder domain model to an OrderDetailsDto.
@@ -765,7 +895,7 @@ public class StorefrontService {
      * @param storefrontOrder The domain model to map.
      * @return The DTO representation.
      */
-    private OrderDetailsDto mapToOrderDetailsDto(StorefrontOrder storefrontOrder) {
+    private OrderDetailsDto mapToOrderDetailsDto(StorefrontOrder storefrontOrder,PackageDetails packageDetails) {
         // --- Customer Name & Email Mapping ---
         // Assuming customerInfo map contains "name" and "email" keys
         String customerName = Optional.ofNullable(storefrontOrder.getCustomerInfo())
@@ -807,38 +937,23 @@ public class StorefrontService {
                 .map(this::mapStorefrontOrderItemToOrderItemDto)
                 .collect(Collectors.toList());
 
-        // --- Package Details (Hypothetical Calculation/Default) ---
-        // Your OrderDetailsDto has totalWeightKg, packageLengthCm, packageBreadthCm, packageHeightCm.
-        // These are not directly present in StorefrontOrder. You'll need to either:
-        // 1. Calculate them based on items (if items have weight/dimensions).
-        // 2. Fetch them from another source (e.g., product catalog).
-        // 3. Use default values for now.
-        // For this example, I'll use placeholders. You MUST replace this with actual logic.
-        Double calculatedTotalWeightKg = calculateTotalWeight(storefrontOrder.getItems()); // Implement this
-        Double calculatedPackageLengthCm = 20.0; // Placeholder: Replace with actual logic or config
-        Double calculatedPackageBreadthCm = 15.0; // Placeholder: Replace with actual logic or config
-        Double calculatedPackageHeightCm = 10.0; // Placeholder: Replace with actual logic or config
-
         log.debug("Mapping StorefrontOrder {} to OrderDetailsDto", storefrontOrder.getOrderId());
         return OrderDetailsDto.builder()
                 .orderId(storefrontOrder.getOrderId())
                 .customerName(customerName)
                 .customerEmail(customerEmail)
                 .customerPhone(customerPhone)
-                // Assuming paymentMethod is always "Prepaid" or "COD" and you get it from somewhere else
-                // For now, I'll default based on the common model, or you might have a paymentService.
-                // If paymentId leads to COD, then "COD", else "Prepaid"
                 .paymentMethod(determinePaymentMethod(storefrontOrder.getPaymentId()))
-                .totalOrderValue(storefrontOrder.getGrandTotal()) // Directly map grandTotal
-                .billingAddressLine1(shippingAddressLine1) // Assuming shipping is billing for now
+                .totalOrderValue((int) Math.round(storefrontOrder.getGrandTotal()))
+                .billingAddressLine1(shippingAddressLine1)
                 .billingAddressLine2(shippingAddressLine2)
                 .billingCity(shippingCity)
                 .billingPincode(shippingPincode)
                 .billingState(shippingState)
-                .totalWeightKg(calculatedTotalWeightKg)
-                .packageLengthCm(calculatedPackageLengthCm)
-                .packageBreadthCm(calculatedPackageBreadthCm)
-                 .packageHeightCm(calculatedPackageHeightCm)
+                .totalWeightKg(packageDetails.getTotalWeightKg())
+                .packageLengthCm(packageDetails.getLengthCm())
+                .packageBreadthCm(packageDetails.getWidthCm())
+                .packageHeightCm(packageDetails.getHeightCm())
                 .items(itemDtos)
                 .build();
     }
@@ -850,18 +965,29 @@ public class StorefrontService {
      * @return The DTO item representation.
      */
     private OrderDetailsDto.OrderItemDto mapStorefrontOrderItemToOrderItemDto(SaleItem storefrontOrderItem) {
-        // HSN Code is not directly present in StorefrontOrderItem.
-        // You would typically get this from a product catalog service or store it denormalized.
-        // For now, using a placeholder. You MUST replace this.
-        Integer hsnCode = 123456; // Placeholder: Replace with actual logic (e.g., lookup by productId)
 
-       // log.trace("Mapping StorefrontOrderItem {} ()", storefrontOrderItem.getProductName());
+
+        log.trace("Mapping StorefrontOrderItem {} ()", storefrontOrderItem.getProductName());
         return OrderDetailsDto.OrderItemDto.builder()
                 .name(storefrontOrderItem.getProductName())
-               // .sku(storefrontOrderItem.getSku())
+                .name(
+                        storefrontOrderItem.getProductName() != null && !storefrontOrderItem.getProductName().isBlank()
+                                ? storefrontOrderItem.getProductName()
+                                : "Product12345"
+                )
+
                 .quantity(storefrontOrderItem.getQuantity())
-               // .unitPrice(storefrontOrderItem.getMrp()) // Using MRP per item
-                .hsnCode(hsnCode)
+
+                .sku(
+                       storefrontOrderItem.getSku() != null && !storefrontOrderItem.getSku().isBlank()
+                                ? storefrontOrderItem.getSku()
+                                : "SKU12345"
+                )
+                .hsnCode(Integer.valueOf(storefrontOrderItem.getHsn() != null && !storefrontOrderItem.getHsn().isBlank()
+                        ? storefrontOrderItem.getHsn()
+                        : "12345")
+                )
+                .unitPrice(storefrontOrderItem.getMrpPerItem())
                 .build();
     }
 
@@ -875,6 +1001,13 @@ public class StorefrontService {
             return "COD";
         }
         return "Prepaid";
+    }
+
+    private Double round(Double value) {
+        if (value == null) return 0.0;
+        return BigDecimal.valueOf(value)
+                .setScale(2, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     /**

@@ -14,3 +14,12 @@ services:
     url: http://localhost:8082
   payment-service:
     url: http://localhost:8084
+
+
+# ===================================================================
+# CUSTOM APPLICATION PROPERTIES
+# ===================================================================
+app:
+  firebase:
+    # Path to the service account key within the classpath.
+    service-account-path: "google-services.json"

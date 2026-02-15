@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -40,7 +41,7 @@ public class OrderDetailsDto {
     private String customerPhone;
 
     /** The total monetary value of all items in the order, before shipping or discounts. */
-    private Double totalOrderValue;
+    private Integer totalOrderValue;
 
     // --- Structured Billing/Shipping Address ---
     // Assuming shipping and billing addresses are the same for simplicity.
@@ -52,13 +53,13 @@ public class OrderDetailsDto {
 
     // --- Calculated Package Details ---
     /** The total weight of the package in kilograms (kgs), calculated by the order-service. */
-    private Double totalWeightKg;
+    private BigDecimal totalWeightKg;
     /** The total length of the package in centimeters (cms). */
-    private Double packageLengthCm;
+    private BigDecimal  packageLengthCm;
     /** The total breadth of the package in centimeters (cms). */
-    private Double packageBreadthCm;
+    private BigDecimal  packageBreadthCm;
     /** The total height of the package in centimeters (cms). */
-    private Double packageHeightCm;
+    private BigDecimal  packageHeightCm;
 
     /** A list of all line items included in the order. */
     private List<OrderItemDto> items;
