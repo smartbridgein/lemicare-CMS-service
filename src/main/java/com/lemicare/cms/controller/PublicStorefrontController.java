@@ -3,6 +3,8 @@ package com.lemicare.cms.controller;
 import com.cosmicdoc.common.model.StorefrontCategory;
 import com.cosmicdoc.common.model.StorefrontOrder;
 import com.cosmicdoc.common.model.StorefrontProduct;
+import com.cosmicdoc.common.util.CursorPage;
+import com.lemicare.cms.dto.response.ProductWithStockResponse;
 import com.lemicare.cms.exception.ResourceNotFoundException;
 import com.lemicare.cms.dto.request.CreateOrderRequest;
 import com.lemicare.cms.dto.request.InitiateCheckoutRequest;
@@ -55,6 +57,8 @@ public class PublicStorefrontController {
         return ResponseEntity.ok(products);
 
     }
+
+
 
     /**
      * Fetches the complete, combined details for a single product to display on a product page.
@@ -118,6 +122,16 @@ public class PublicStorefrontController {
 
         CreateOrderResponse resp = storefrontService.createPaymentOrder( request);
         return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(resp);
+    }
+
+    @GetMapping("/{orgId}/products/paged")
+    public CursorPage<ProductWithStockResponse> getVisibleProducts(
+            @PathVariable  String orgId,
+            @RequestParam(required = false) String categoryId,
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String nextPageToken
+    ) {
+        return storefrontService.getAvailableProductsPaged(orgId, categoryId, pageSize, nextPageToken);
     }
 }
 

@@ -3,6 +3,7 @@ package com.lemicare.cms.integration.client;
 import com.cosmicdoc.common.model.Sale;
 import com.lemicare.cms.config.FeignConfig;
 import com.lemicare.cms.dto.request.CreateSaleRequest;
+import com.lemicare.cms.dto.request.StockCountDetails;
 import com.lemicare.cms.dto.response.MedicineStockDetailResponse;
 import com.lemicare.cms.dto.response.MedicineStockResponse;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -11,6 +12,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+
+import java.util.List;
+import java.util.Map;
 
 @FeignClient(
         name = "inventory-service",
@@ -27,5 +31,6 @@ public interface InventoryService {
     @GetMapping("/api/public/inventory/medicines/{medicineId}/stock-details")
     MedicineStockDetailResponse getPublicMedicineDetails(@PathVariable String medicineId);
 
-
+    @PostMapping("/api/public/inventory/stock/count")
+    Map<String, Integer> getStockBatch(@RequestBody StockCountDetails stockCountDetails);
 }

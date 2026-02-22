@@ -3,7 +3,7 @@ package com.lemicare.cms.service;
 
 import com.cosmicdoc.common.model.*;
 import com.cosmicdoc.common.repository.*;
-import com.cosmicdoc.common.util.FirestorePage;
+import com.cosmicdoc.common.util.CursorPage;
 import com.cosmicdoc.common.util.IdGenerator;
 import com.google.api.client.util.Strings;
 import com.google.cloud.Timestamp;
@@ -272,77 +272,6 @@ public class StorefrontService {
         //offer  --> next release ,promo code --> discount
     }
 
-
-    public PaginatedResponse<PublicProductListResponse> findAllByOrganizationlistPublicProducts(
-            String orgId, String categoryId, int page, int size, String startAfter) {
-
-        // 1. Get a paginated list of visible storefront products from our DB.
-        // It's crucial to cast to your custom implementation (FirestorePage)
-        // to access getTotalElements(), getTotalPages(), isLast().
-        FirestorePage<StorefrontProduct> productPage =
-                (FirestorePage<StorefrontProduct>) storefrontProductRepository.findAllVisible(orgId, categoryId, size, startAfter);
-
-
-        List<StorefrontProduct> cmsProducts = productPage.getValues(); // Use getValues()
-
-        // Important: Your current logic for handling empty `cmsProducts`
-        // already includes passing `productPage.getTotalElements()`, etc.
-        // This is good, as even an empty page might have a total count > 0 if
-        // it's an intermediate page in a large result set, or 0 if truly empty.
-        if (cmsProducts.isEmpty() && productPage.getTotalElements() == 0) { // Added check for totalElements for clarity
-            return new PaginatedResponse<>(
-                    Collections.emptyList(),
-                    page,
-                    size,
-                    0L, // If no products and total elements is 0, explicitly pass 0
-                    0,  // If no products and total elements is 0, explicitly pass 0
-                    true // If no products, it's the last page
-            );
-        }
-
-        // 2. Collect the IDs to fetch from the inventory service.
-        List<String> medicineIds = cmsProducts.stream()
-                .map(StorefrontProduct::getProductId)
-                .collect(Collectors.toList());
-
-        // 3. Make a single, efficient batch API call to the inventory service.
-        //  MedicineStockRequest stockRequest = new MedicineStockRequest(medicineIds);
-        // List<MedicineStockResponse> inventoryData = inventoryServiceClient.getStockLevelsForMedicines(stockRequest);
-
-        // Create a lookup map for easy access
-        // Map<String, MedicineStockResponse> inventoryMap = inventoryData.stream()
-        //         .collect(Collectors.toMap(MedicineStockResponse::getMedicineId, Function.identity()));
-
-        // 4. Combine the two data sources into the final response DTO.
-        List<PublicProductListResponse> responseList = cmsProducts.stream().map(cmsProduct -> {
-            // MedicineStockResponse stockInfo = inventoryMap.get(cmsProduct.getProductId());
-            //  if (stockInfo == null) {
-            // If a product from CMS is not found in inventory, decide how to handle.
-            // Current code returns null, which then gets filtered out.
-            // This correctly ensures only products with inventory data are shown.
-            //return null;
-            //  }
-
-            return PublicProductListResponse.builder()
-                    .productId(cmsProduct.getProductId())
-                    .name(cmsProduct.getProductName()) // Name from inventory
-                    .mainImageUrl(cmsProduct.getImages().isEmpty() ? null : cmsProduct.getImages().get(0).getOriginalUrl())
-                    .mrp(cmsProduct.getMrp()) // MRP from inventory
-                    .stockStatus(cmsProduct.getCurrentStatus()) // Stock status from inventory
-                    .build();
-        }).filter(Objects::nonNull).collect(Collectors.toList());
-
-        // Return the PaginatedResponse with all the data
-        return new PaginatedResponse<>(
-                responseList,
-                page, // Assuming 'page' passed in is the current page number
-                size,
-                productPage.getTotalElements(),
-                productPage.getTotalPages(),
-                productPage.isLast()
-        );
-    }
-
     public void updateProductStockLevel(String orgId, String branchId, String productId, int newStockLevel, String productName, Double mrp, String taxProfileId, String gstType, String category) {
         // The branchId needs to be part of the key for StorefrontProduct
         // If the StockLevelChangedEvent doesn't carry branchId, you'll need a strategy
@@ -373,6 +302,7 @@ public class StorefrontService {
                     .isVisible(false) // Default to not visible until CMS admin enriches it
                     .images(new java.util.ArrayList<>())
                     .tags(new java.util.ArrayList<>())
+                    .createdAt(Timestamp.now())
                     .build();
             isNewProduct = true;
         }
@@ -642,6 +572,7 @@ public class StorefrontService {
         return storefrontProductRepository.findAllByOrganizationId(orgId);
     }
 
+
     public StorefrontOrder createPendingOrder(String orgId, InitiateCheckoutRequest request)
              {
        try {
@@ -724,29 +655,11 @@ public class StorefrontService {
         }
     }
 
-
-    private String determineFulfillingBranch(String orgId, Map<String, String> shippingAddress) {
-        // Implement logic here to determine which branch should fulfill the order.
-        // This could involve:
-        // - Looking up branches by geo-location/delivery radius.
-        // - Using a default branch for the organization.
-        // - If the frontend explicitly sends a branch preference, use that.
-        // For simplicity, returning a hardcoded dummy for now.
-        log.warn("Using dummy branchId for order fulfillment. Implement actual branch determination logic!");
-        // return "some-derived-branch-id";
-        // Let's assume for now, there's a default branch or it's implicitly part of the org.
-        // In a single-branch org, it might always be the same.
-        // If your SecurityUtils.getBranchId() can give a context, you could use that.
-        // Or if the frontend passes it in the request.
-        // IMPORTANT: You might need to update InitiateCheckoutRequest to include branchId.
-        return "branch_default_001"; // Placeholder
-    }
-
-    public CreateOrderResponse createPaymentOrder( CreateOrderRequest request) {
+   public CreateOrderResponse createPaymentOrder( CreateOrderRequest request) {
 
         return paymentServiceClient.createPaymentOrder(request);
 
-    }
+   }
 
     public StorefrontProduct getProductById(String orgId, String productId) {
         StorefrontProduct product = storefrontProductRepository.findById(orgId, productId)
@@ -1038,439 +951,80 @@ public class StorefrontService {
         log.info("delete StorefrontOrder with ID: {} for Org: {}", productId, orgId);
     }
 
-    // You would likely have a similar method for dimensions if they were item-specific
-    // private Double calculateTotalLength(List<StorefrontOrderItem> items) { ... }
+    public CursorPage<ProductWithStockResponse> getAvailableProductsPaged(
+            String orgId,
+            String categoryId,
+            int pageSize,
+            String startAfter
+    ) {
 
-
-
-
-    /*public StorefrontProduct updateProduct(
-            String orgId, String branchId, String productId, // branchId is currently unused
-            ProductEnrichmentRequestDto request, MultipartFile[] imageFiles)
-            throws IOException, ExecutionException, InterruptedException {
-
-        // --- 0. Input Validation ---
-        if (Strings.isNullOrEmpty(orgId)) {
-            throw new IllegalArgumentException("Organization ID cannot be null or empty.");
-        }
-        if (Strings.isNullOrEmpty(productId)) {
-            throw new IllegalArgumentException("Product ID cannot be null or empty.");
-        }
-        if (request == null) {
-            throw new IllegalArgumentException("Product enrichment request cannot be null.");
-        }
-        // Ensure imageFiles array is not null to avoid NullPointerException in loop
-        if (imageFiles == null) {
-            imageFiles = new MultipartFile[0];
-        }
-
-
-        StorefrontProduct product = storefrontProductRepository.findById(orgId, productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Storefront Product with ID " + productId + " not found for update."));
-
-        // --- 1. Update general product metadata fields ---
-        if (!Strings.isNullOrEmpty(request.getRichDescription())) {
-            product.setRichDescription(request.getRichDescription());
-        }
-        if (!Strings.isNullOrEmpty(request.getHighLights())) {
-            product.setHighlights(request.getHighLights());
-        }
-        product.setVisible(request.isVisible()); // Boolean, usually not null
-        if (!Strings.isNullOrEmpty(request.getCategoryId())) {
-            product.setCategoryName(request.getCategoryId()); // Using categoryId for categoryName
-        }
-        if (!Strings.isNullOrEmpty(request.getSlug())) {
-            product.setSlug(request.getSlug());
-        }
-        if (request.getTags() != null) {
-            // Ensure tags are updated with a new list, defensive copy.
-            product.setTags(new ArrayList<>(request.getTags()));
-        }
-
-        // --- 2. Process Images (Deletions, Updates, New Uploads) ---
-
-        // Start with a mutable copy of current images for working set
-        List<ImageAsset> currentProductImages = product.getImages() != null ? new ArrayList<>(product.getImages()) : new ArrayList<>();
-
-        // Create a map from existing images for efficient lookup/modification by assetId.
-        // Using LinkedHashMap to preserve order if existing images' order is relevant,
-        // though final sort by displayOrder will re-establish.
-        Map<String, ImageAsset> existingImageAssetsById = currentProductImages.stream()
-                .collect(Collectors.toMap(
-                        ImageAsset::getAssetId,
-                        Function.identity(),
-                        (existing, replacement) -> existing, // Merge function for duplicate keys (shouldn't happen with unique assetId)
-                        () -> new HashMap<>() // Supplier for the map type
-                ));
-
-        // List to hold metadata for *new* image files to be uploaded.
-        // These are imageMetadata DTOs that don't have an assetId yet.
-        List<ProductEnrichmentRequestDto.ImageMetadataDto> newImageMetadataQueue = new ArrayList<>();
-
-        // Process incoming image metadata from the request DTO
-        if (request.getImages() != null) {
-            for (ProductEnrichmentRequestDto.ImageMetadataDto imageMetadata : request.getImages()) {
-                if (imageMetadata.getAssetId() != null) {
-                    // This metadata refers to an existing image
-                    ImageAsset existingAsset = existingImageAssetsById.get(imageMetadata.getAssetId());
-                    if (existingAsset != null) {
-                        if (imageMetadata.isDelete()) {
-                            log.info("Deleting image asset: {} for product: {}", imageMetadata.getAssetId(), productId);
-                            deleteImageFilesFromGCS(orgId, productId, imageMetadata.getAssetId());
-                            existingImageAssetsById.remove(imageMetadata.getAssetId()); // Mark for removal from the final list
-                        } else {
-                            // Update metadata for existing image
-                            existingAsset.setAltText(imageMetadata.getAltText());
-                            existingAsset.setDisplayOrder(imageMetadata.getDisplayOrder());
-                            // No need to re-add to map; it's already there and updated
-                        }
-                    } else {
-                        log.warn("Received metadata for non-existent or already deleted image asset: {} for product: {}",
-                                imageMetadata.getAssetId(), productId);
-                    }
-                } else if (!imageMetadata.isDelete()) { // No assetId and not a delete means it's for a new upload
-                    newImageMetadataQueue.add(imageMetadata);
-                }
-            }
-        }
-
-        // The 'existingImageAssetsById.values()' now contains all images that were NOT deleted
-        // and have their metadata (altText, displayOrder) updated if present in the request.
-        List<ImageAsset> finalImagesToPersist = new ArrayList<>(existingImageAssetsById.values());
-
-
-        // --- 3. Handle new image file uploads ---
-        // This assumes a 1:1 positional correspondence between imageFiles and newImageMetadataQueue.
-        // For production, if order cannot be guaranteed, client-generated temporary IDs in both
-        // MultipartFile and ImageMetadataDto are recommended for robust matching.
-        for (int i = 0; i < imageFiles.length; i++) {
-            MultipartFile imageFile = imageFiles[i];
-            // Only process if there's a corresponding metadata entry for a new image upload
-            // and the file itself is not empty.
-            if (i >= newImageMetadataQueue.size()) {
-                log.warn("No corresponding metadata found for MultipartFile at index {}. Skipping upload.", i);
-                continue;
-            }
-            if (imageFile == null || imageFile.isEmpty()) {
-                log.warn("Skipping empty or null MultipartFile at index {}", i);
-                continue;
-            }
-
-            ProductEnrichmentRequestDto.ImageMetadataDto correspondingMetadata = newImageMetadataQueue.get(i);
-
-            try {
-                String assetId = IdGenerator.newId("IMG");
-                String originalFileName = imageFile.getOriginalFilename();
-                String fileExtension = getFileExtension(originalFileName);
-                String contentType = getContentType(fileExtension, imageFile.getContentType());
-
-                String basePath = String.format("images/%s/%s/%s/", orgId, productId, assetId);
-
-                // Read bytes once for resizing
-                byte[] imageBytes = imageFile.getBytes();
-
-                // 1. Upload Original Image
-                String originalBlobName = basePath + "original" + fileExtension;
-                BlobInfo originalBlobInfo = storage.create(
-                        BlobInfo.newBuilder(bucketName, originalBlobName)
-                                .setContentType(contentType)
-                                .build(),
-                        new ByteArrayInputStream(imageBytes) // Use fresh stream for original upload
+        // 1️⃣ Fetch CMS products using cursor pagination
+        CursorPage<StorefrontProduct> productPage =
+                storefrontProductRepository.findAllVisible(
+                        orgId,
+                        categoryId,
+                        pageSize,
+                        startAfter
                 );
-                makeBlobPubliclyReadable(originalBlobInfo.getBlobId()); // Ensure public readability
-                String originalUrl = originalBlobInfo.getMediaLink();
-                log.info("Uploaded original image: {} to GCS", originalUrl);
 
-                // 2. Generate and Upload Resized Images
-                String thumbnailUrl = generateAndUploadResizedImage(
-                        new ByteArrayInputStream(imageBytes), basePath, "thumb", fileExtension, 200, 200);
-                String mediumUrl = generateAndUploadResizedImage(
-                        new ByteArrayInputStream(imageBytes), basePath, "medium", fileExtension, 600, 600);
-                String largeUrl = generateAndUploadResizedImage(
-                        new ByteArrayInputStream(imageBytes), basePath, "large", fileExtension, 1200, 1200);
+        List<StorefrontProduct> products = productPage.getContent();
 
-                log.info("Uploaded resized images for assetId: {}", assetId);
-
-                // 3. Create new ImageAsset
-                String altText = (correspondingMetadata != null && !Strings.isNullOrEmpty(correspondingMetadata.getAltText()))
-                        ? correspondingMetadata.getAltText()
-                        : (product.getProductName() != null ? product.getProductName() : "Product") + " image " + (finalImagesToPersist.size() + 1);
-                int displayOrder = (correspondingMetadata != null)
-                        ? correspondingMetadata.getDisplayOrder()
-                        : (finalImagesToPersist.size() + 1); // Assign a unique default order
-
-                ImageAsset newImageAsset = ImageAsset.builder()
-                        .assetId(assetId)
-                        .originalUrl(originalUrl)
-                        .thumbnailUrl(thumbnailUrl)
-                        .mediumUrl(mediumUrl)
-                        .largeUrl(largeUrl)
-                        .altText(altText)
-                        .displayOrder(displayOrder)
-                        .fileExtension(fileExtension)
-                        .build();
-                finalImagesToPersist.add(newImageAsset); // Add new image to the final list
-
-            } catch (IOException e) {
-                log.error("Failed to process image file at index {}: {}", i, e.getMessage(), e);
-                // For production, consider:
-                // 1. Logging the failure and continuing for other images.
-                // 2. Rolling back previously uploaded GCS files for this product if image processing is critical.
-                // 3. Re-throwing a more specific exception for the client.
-                throw new IOException("Failed to process image file for upload at index " + i + ": " + e.getMessage(), e);
-            }
+        if (products.isEmpty()) {
+            return new CursorPage<>(
+                    List.of(),
+                    null,
+                    false
+            );
         }
 
-        // Sort all images by display order before saving
-        // Use a stable sort to ensure consistent order if displayOrder values are the same
-        finalImagesToPersist.sort(Comparator.comparingInt(ImageAsset::getDisplayOrder));
-        product.setImages(finalImagesToPersist);
+        // 2️⃣ Extract productIds
+        List<String> productIds = products.stream()
+                .map(StorefrontProduct::getProductId)
+                .toList();
 
-        // --- 4. Save the final updated product ---
-        try {
-            return storefrontProductRepository.save(product);
-        } catch (Exception e) {
-            log.error("Failed to save product {} after image updates: {}", productId, e.getMessage(), e);
-            // Critical consideration: If database save fails, you might have orphaned GCS files.
-            // Implement transaction management or a cleanup mechanism (e.g., a GCS lifecycle policy
-            // to delete old files, or a background job to identify and delete unreferenced blobs).
-            throw new RuntimeException("Failed to save product changes to database.", e);
-        }
-    }
+        List<Branch> branches = branchRepository.findAllByOrganizationId(orgId);
 
-    *//**
-     * Helper method to determine file extension from filename.
-     *//*
-    private String getFileExtension(String fileName) {
-        if (!Strings.isNullOrEmpty(fileName) && fileName.contains(".")) {
-            String extension = fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
-            if (IMAGE_FORMAT_MAP.containsKey(extension)) {
-                return extension;
-            }
-        }
-        return ".jpg"; // Default to JPG if no valid extension found
-    }
+        StockCountDetails stockCountDetails = StockCountDetails.builder()
+                .orgId(orgId)
+                .branchId(branches.get(0).getBranchId())
+                .productIds(productIds)
+                .build();
 
-    *//**
-     * Helper method to determine content type.
-     *//*
-    private String getContentType(String fileExtension, String defaultContentType) {
-        String mappedContentType = IMAGE_FORMAT_MAP.get(fileExtension);
-        if (mappedContentType != null) {
-            return mappedContentType;
-        }
-        // Fallback to defaultContentType if valid image, else jpeg
-        return (!Strings.isNullOrEmpty(defaultContentType) && defaultContentType.startsWith("image/"))
-                ? defaultContentType
-                : "image/jpeg";
-    }
+        // 3️⃣ Batch inventory call
+        Map<String, Integer> stockMap =
+                inventoryService.getStockBatch(stockCountDetails);
 
-    *//**
-     * Helper method to delete all versions of an image from GCS based on assetId.
-     * Assumes consistent naming convention (original, thumb, medium, large) and stored extension.
-     * This method retrieves the product to get the exact file extension for precise deletion.
-     *
-     * @param orgId     The organization ID.
-     * @param productId The product ID.
-     * @param assetId   The asset ID of the image to delete.
-     *//*
-    private void deleteImageFilesFromGCS(String orgId, String productId, String assetId) {
-        String storedFileExtension = null; // We'll try to find this accurately
+        // 4️⃣ Merge CMS + Inventory
+        List<ProductWithStockResponse> responseList = products.stream()
+                .map(product -> mapToProductWithStock(product, stockMap))
+                .toList();
 
-        // Try to retrieve the product and find the image asset to get its specific file extension
-        try {
-            Optional<StorefrontProduct> productOptional = storefrontProductRepository.findById(orgId, productId);
-            if (productOptional.isPresent() && productOptional.get().getImages() != null) {
-                Optional<ImageAsset> assetToDelete = productOptional.get().getImages().stream()
-                        .filter(img -> assetId.equals(img.getAssetId()))
-                        .findFirst();
-                if (assetToDelete.isPresent() && !Strings.isNullOrEmpty(assetToDelete.get().getFileExtension())) {
-                    storedFileExtension = assetToDelete.get().getFileExtension();
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Could not retrieve product {} to find file extension for asset {}. Deletion might be less precise: {}",
-                    productId, assetId, e.getMessage());
-        }
-
-        List<String> blobNamesToDelete = new ArrayList<>();
-        String basePath = String.format("images/%s/%s/%s/", orgId, productId, assetId);
-
-        if (storedFileExtension != null) {
-            // If we found a specific extension, try to delete with it
-            blobNamesToDelete.add(basePath + "original" + storedFileExtension);
-            blobNamesToDelete.add(basePath + "thumb" + storedFileExtension);
-            blobNamesToDelete.add(basePath + "medium" + storedFileExtension);
-            blobNamesToDelete.add(basePath + "large" + storedFileExtension);
-        } else {
-            // Fallback: try deleting with all known image extensions
-            log.warn("No specific file extension found for asset {}. Attempting deletion with all common image extensions.", assetId);
-            for (String ext : IMAGE_FORMAT_MAP.keySet()) {
-                blobNamesToDelete.add(basePath + "original" + ext);
-                blobNamesToDelete.add(basePath + "thumb" + ext);
-                blobNamesToDelete.add(basePath + "medium" + ext);
-                blobNamesToDelete.add(basePath + "large" + ext);
-            }
-        }
-
-        for (String blobName : blobNamesToDelete) {
-            try {
-                BlobId targetBlobId = BlobId.of(bucketName, blobName);
-                if (storage.delete(targetBlobId)) {
-                    log.debug("Successfully deleted GCS blob: {}", blobName);
-                } else {
-                    log.debug("GCS blob not found or already deleted (expected for some fallback attempts): {}", blobName);
-                }
-            } catch (Exception e) {
-                // Log and continue, as one deletion failure shouldn't stop others
-                log.error("Error deleting GCS blob {}: {}", blobName, e.getMessage(), e);
-            }
-        }
-    }
-
-    *//**
-     * Resizes an image from an InputStream and uploads it to Google Cloud Storage.
-     * The uploaded image is made publicly readable via IAM after creation.
-     *
-     * @param originalImageStream The input stream of the original image bytes. This stream will be closed by this method.
-     * @param basePath            The base path in GCS (e.g., "images/orgId/productId/assetId/")
-     * @param sizeQualifier       A string to append to the filename (e.g., "thumb", "medium", "large")
-     * @param fileExtension       The file extension for the output (e.g., ".jpg", ".png")
-     * @param targetWidth         The desired width for the resized image.
-     * @param targetHeight        The desired height for the resized image.
-     * @return The public URL of the uploaded resized image.
-     * @throws IOException If an I/O error occurs during image processing or upload.
-     *//*
-    private String generateAndUploadResizedImage(
-            InputStream originalImageStream, String basePath, String sizeQualifier,
-            String fileExtension, int targetWidth, int targetHeight) throws IOException {
-
-        BufferedImage originalImage = null;
-        try {
-            originalImage = ImageIO.read(originalImageStream);
-        } catch (IIOException e) {
-            log.error("Failed to read image for resizing for basePath {}. Invalid image format? {}", basePath, e.getMessage(), e);
-            throw new IOException("Failed to read image for resizing. Invalid image format? " + e.getMessage(), e);
-        } finally {
-            try {
-                if (originalImageStream != null) originalImageStream.close();
-            } catch (IOException e) {
-                log.warn("Failed to close original image stream during resizing for basePath: {}", basePath, e);
-            }
-        }
-
-        if (originalImage == null) {
-            throw new IOException("Could not read image for resizing from provided stream. Original image was null.");
-        }
-
-        int originalWidth = originalImage.getWidth();
-        int originalHeight = originalImage.getHeight();
-
-        // Avoid division by zero if image dimensions are invalid
-        if (originalWidth <= 0 || originalHeight <= 0) {
-            throw new IOException("Invalid original image dimensions: " + originalWidth + "x" + originalHeight);
-        }
-
-        double aspectRatio = (double) originalWidth / originalHeight;
-
-        int newWidth = targetWidth;
-        int newHeight = (int) (newWidth / aspectRatio);
-
-        // If the calculated height is greater than the target height,
-        // re-calculate based on target height to fit within bounds.
-        if (newHeight > targetHeight) {
-            newHeight = targetHeight;
-            newWidth = (int) (newHeight * aspectRatio);
-        }
-
-        // Ensure new dimensions are positive and at least 1x1
-        newWidth = Math.max(1, newWidth);
-        newHeight = Math.max(1, newHeight);
-
-        // Create a new buffered image with the desired size and type
-        // Use TYPE_INT_ARGB for PNG/GIF to preserve transparency, otherwise TYPE_INT_RGB
-        int imageType = (fileExtension.equalsIgnoreCase(".png") || fileExtension.equalsIgnoreCase(".gif"))
-                ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
-        BufferedImage resizedImage = new BufferedImage(newWidth, newHeight, imageType);
-
-        // Draw the original image onto the new image, scaling it using Graphics2D
-        java.awt.Graphics2D g = resizedImage.createGraphics();
-        g.drawImage(originalImage, 0, 0, newWidth, newHeight, null);
-        g.dispose(); // Release graphics resources
-
-        // Prepare to upload the resized image
-        ByteArrayOutputStream os = new ByteArrayOutputStream();
-        String formatName = fileExtension.substring(1); // e.g., "jpg", "png"
-
-        // Ensure the formatName is valid for ImageIO.write
-        if (!ImageIO.write(resizedImage, formatName, os)) {
-            // This might happen if ImageIO doesn't support the format, or there's an internal error
-            throw new IOException("Could not write resized image to output stream for format: " + formatName);
-        }
-        ByteArrayInputStream resizedInputStream = new ByteArrayInputStream(os.toByteArray());
-
-        String resizedBlobName = basePath + sizeQualifier + fileExtension;
-        String contentType = getContentType(fileExtension, null); // Get proper content type
-
-        // Upload resized image to GCS
-        BlobInfo resizedBlobInfo = storage.create(
-                BlobInfo.newBuilder(bucketName, resizedBlobName)
-                        .setContentType(contentType)
-                        .build(),
-                resizedInputStream
+        // 5️⃣ Return correct CursorPage
+        return new CursorPage<>(
+                responseList,
+                productPage.getNextPageToken(),
+                productPage.isHasNext() // or productPage.isHasNext()
         );
-
-        makeBlobPubliclyReadable(resizedBlobInfo.getBlobId()); // Make the resized object publicly readable
-
-        return resizedBlobInfo.getMediaLink();
     }
+    private ProductWithStockResponse mapToProductWithStock(
+            StorefrontProduct product,
+            Map<String, Integer> stockMap
+    ) {
 
-    *//**
-     * Helper method to make a GCS blob publicly readable by adding an IAM policy binding.
-     * Grants the 'roles/storage.objectViewer' role to 'allUsers' for the specified blob.
-     * This version correctly uses Storage.getIamPolicy() and Storage.setIamPolicy() with BlobId.
-     *//*
-    private void makeBlobPubliclyReadable(BlobId blobId) {
-        try {
-            // 1. Get the current Blob object.
-            // It's essential to get the *existing* blob to ensure we update it correctly.
-            Blob blob = storage.get(blobId);
+        int stock = stockMap.getOrDefault(product.getProductId(), 0);
 
-            // If the blob doesn't exist (e.g., race condition), log and exit.
-            if (blob == null) {
-                log.warn("Attempted to set public read ACL for non-existent blob: {}", blobId.getName());
-                return;
-            }
-
-            // Define the ACL entry for public read access
-            Acl publicReadAcl = Acl.of(User.ofAllUsers(), Role.READER);
-
-            // 2. Get the current list of ACLs for the blob.
-            List<Acl> currentAcls = new ArrayList<>(blob.getAcls());
-
-            // 3. Check if the public read ACL already exists to avoid redundant updates.
-            boolean alreadyPublic = currentAcls.contains(publicReadAcl);
-
-            if (!alreadyPublic) {
-                // 4. If not present, add the new public read ACL to the list.
-                currentAcls.add(publicReadAcl);
-
-                // 5. Update the blob with the modified list of ACLs.
-                // This replaces the blob's ACLs with the new list.
-                storage.update(blob.toBuilder().setAcls(currentAcls).build());
-
-                log.info("Successfully added public read ACL for blob: {} in bucket {}.",
-                        blobId.getName(), blobId.getBucket());
-            } else {
-                log.debug("Blob {} in bucket {} was already publicly readable.",
-                        blobId.getName(), blobId.getBucket());
-            }
-        } catch (Exception e) {
-            log.error("Failed to make blob {} publicly readable: {}", blobId.getName(), e.getMessage(), e);
-            // Re-throw as a more specific runtime exception if appropriate for your error handling strategy
-            throw new RuntimeException("Failed to set public read access for blob: " + blobId.getName(), e);
-        }
-    }*/
+        return ProductWithStockResponse.builder()
+                .productId(product.getProductId())
+                .productName(product.getProductName())
+                .categoryName(product.getCategoryName())
+                .mrp(product.getMrp())
+                .slug(product.getSlug())
+                .images(product.getImages())
+                .stockLevel(stock)
+                .inStock(stock > 0)
+                .lowStock(stock > 0 && stock <= 5)
+                .build();
+    }
 }
 
 
