@@ -623,12 +623,13 @@ public class StorefrontService {
            StorefrontOrder order = StorefrontOrder.builder()
                    .orderId(orderId)
                    .organizationId(orgId)
-                   // .branchId(branchId) // CRITICAL: This needs to be correctly determined
+                   .branchId(branches.get(0).getBranchId()) // CRITICAL: This needs to be correctly determined
                    .patientId(request.getCustomerId())
                    .customerInfo(request.getCustomerInfo())
                    .shippingAddress(request.getShippingAddress())
                    .grandTotal(grandTotal)
                    .status("PENDING_PAYMENT") // Initial status
+                   .courierId(request.getCourierId())
                    .createdAt(Timestamp.now())
                    .items(sale.getItems())
                    .build();
